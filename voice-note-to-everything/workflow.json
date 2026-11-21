@@ -1,0 +1,603 @@
+{
+ "name": "Voice-Note-to-Everything — Siva",
+ "nodes": [
+  {
+   "parameters": {
+    "content": "Voice-Note-to-Everything — Siva\nTelegram voice note → transcription → Gemini splits it into tasks, calendar events and ideas → Todoist / Google Calendar / Notion. Nothing is created until Siva approves the split in Telegram.",
+    "height": 120,
+    "width": 480
+   },
+   "id": "c6c7680a-e9c1-4faf-9487-3a8fde3d7932",
+   "name": "Sticky Note — Flow",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "content": "MEMORY LAYER (no live DB): the Voice Notes Log sheet is the memory — one row per voice note (transcript, tasks, events, ideas). Gemini prompts include past rows so repeat requests are recognised. Postgres/vector store can replace the sheet later; do not invent a live DB connection.",
+    "height": 120,
+    "width": 480
+   },
+   "id": "f073ea26-d7c7-4d0b-bbf1-ea8a18118f38",
+   "name": "Sticky Note — Memory Layer",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    720,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "content": "CREDENTIALS NEEDED (pick/create on import — no credential is set in this file):\n- Telegram API — Telegram Trigger, Get Voice File, Send Approval Summary, Notify on Error\n- Speech-to-text service of your choice (Gemini transcription recommended, or any STT API) — Transcribe Voice (STT — placeholder). Point the node at your STT endpoint (currently https://YOUR_STT_ENDPOINT/transcribe) and add its auth as a credential on the node; no key or secret is stored in this file.\n- Todoist API token — Create Todoist Tasks\n- Google Calendar (OAuth2) — Create Calendar Events\n- Notion API key — Save Ideas to Notion\n- Google Sheets (OAuth2) — Log Created Items, Log Error to Sheet, Log Execution\n- Google Gemini (PaLM) API — Gemini Chat Model",
+    "height": 120,
+    "width": 480
+   },
+   "id": "2ee9af9c-0cb7-4244-b182-d994c7216f03",
+   "name": "Sticky Note — Credentials",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    1440,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "updates": [
+     "message"
+    ],
+    "additionalFields": {}
+   },
+   "id": "51318a3e-42d6-440d-9cae-b532c9f19385",
+   "name": "Telegram Trigger",
+   "type": "n8n-nodes-base.telegramTrigger",
+   "typeVersion": 1.2,
+   "position": [
+    0,
+    300
+   ]
+  },
+  {
+   "parameters": {
+    "operation": "get",
+    "resource": "file",
+    "fileId": "={{ $json.message.voice.file_id }}"
+   },
+   "id": "5d9a32af-5503-4b84-b9e0-70ec04b8ba02",
+   "name": "Get Voice File",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    240,
+    300
+   ]
+  },
+  {
+   "parameters": {
+    "method": "POST",
+    "url": "https://YOUR_STT_ENDPOINT/transcribe",
+    "options": {
+     "response": {
+      "response": {
+       "responseFormat": "json"
+      }
+     },
+     "timeout": 10000
+    },
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "{\"file\": \"={{ $binary.data }}\"}"
+   },
+   "id": "72e86adb-1cf6-4294-a961-9c52645a28ab",
+   "name": "Transcribe Voice (STT — placeholder)",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    480,
+    300
+   ]
+  },
+  {
+   "parameters": {
+    "model": "gemini-2.0-flash",
+    "options": {
+     "temperature": 0.3
+    }
+   },
+   "id": "13a8de73-4c5e-4fed-8bdc-d08673e68599",
+   "name": "Gemini Chat Model",
+   "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+   "typeVersion": 1,
+   "position": [
+    720,
+    100
+   ]
+  },
+  {
+   "parameters": {
+    "promptType": "define",
+    "text": "=Split this transcript into (1) tasks, (2) calendar events with dates/times, (3) ideas. Transcript: {{ $json.text }}. Return JSON only: {tasks:[{title, due}], events:[{title, start, end}], ideas:[{title, note}]}. Use only what the speaker said; never invent dates.",
+    "options": {
+     "systemMessage": "You split voice-note transcripts into tasks, calendar events and ideas. Output JSON only. Never invent a date, person or commitment that is not in the transcript."
+    }
+   },
+   "id": "85bab4c5-1271-4427-8324-614b480ea959",
+   "name": "Split into Tasks / Events / Ideas (Gemini Agent)",
+   "type": "@n8n/n8n-nodes-langchain.agent",
+   "typeVersion": 1.8,
+   "position": [
+    720,
+    300
+   ]
+  },
+  {
+   "parameters": {
+    "operation": "sendMessage",
+    "chatId": "YOUR_TELEGRAM_CHAT_ID",
+    "text": "=Your voice note split:\n{{ $json.output }}\nReply APPROVE to create the tasks, events and notes, or REJECT to skip.",
+    "additionalFields": {}
+   },
+   "id": "99062a9b-11d9-49ba-b83f-66d8b0952790",
+   "name": "Send Approval Summary",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    960,
+    300
+   ]
+  },
+  {
+   "parameters": {
+    "amount": 4,
+    "unit": "hours"
+   },
+   "id": "725301dd-8d21-439f-a873-a08d5f414970",
+   "name": "Wait for Approval",
+   "type": "n8n-nodes-base.wait",
+   "typeVersion": 1.1,
+   "position": [
+    1200,
+    300
+   ]
+  },
+  {
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose"
+     },
+     "conditions": [
+      {
+       "id": "cond-1",
+       "leftValue": "={{ $json.approved }}",
+       "rightValue": "",
+       "operator": {
+        "type": "boolean",
+        "operation": "true"
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "looseTypeValidation": true
+   },
+   "id": "307bfb8a-834b-49fb-963e-6794292f2034",
+   "name": "Approved?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    1440,
+    300
+   ]
+  },
+  {
+   "parameters": {
+    "method": "POST",
+    "url": "https://api.todoist.com/rest/v2/tasks",
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth",
+    "options": {
+     "response": {
+      "response": {
+       "responseFormat": "json"
+      }
+     },
+     "timeout": 10000
+    },
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "{\"content\": \"={{ $json.tasks[0].title }}\"}"
+   },
+   "id": "6865032a-3290-4747-a51c-490c40a1095a",
+   "name": "Create Todoist Tasks",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    1680,
+    180
+   ]
+  },
+  {
+   "parameters": {
+    "operation": "create",
+    "calendar": "primary",
+    "summary": "={{ $json.events[0].title }}",
+    "start": {
+     "dateTime": "={{ $json.events[0].start }}"
+    },
+    "end": {
+     "dateTime": "={{ $json.events[0].end }}"
+    }
+   },
+   "id": "196b4358-d5b7-44e0-b612-6fdc92b99f7a",
+   "name": "Create Calendar Events",
+   "type": "n8n-nodes-base.googleCalendar",
+   "typeVersion": 1,
+   "position": [
+    1920,
+    180
+   ]
+  },
+  {
+   "parameters": {
+    "method": "POST",
+    "url": "https://api.notion.com/v1/pages",
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth",
+    "options": {
+     "response": {
+      "response": {
+       "responseFormat": "json"
+      }
+     },
+     "timeout": 10000
+    },
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "{\"parent\": {\"database_id\": \"YOUR_NOTION_DATABASE_ID\"}, \"properties\": {\"title\": {\"title\": [{\"text\": {\"content\": \"={{ $json.ideas[0].title }}\"}}]}}}"
+   },
+   "id": "d11ddd22-6777-48de-8431-0883bff7717a",
+   "name": "Save Ideas to Notion",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    2160,
+    180
+   ]
+  },
+  {
+   "parameters": {
+    "operation": "append",
+    "documentId": "YOUR_VOICE_NOTES_SHEET_ID",
+    "sheetName": "Log",
+    "columns": {
+     "mappingMode": "defineBelow",
+     "value": {
+      "timestamp": "={{ $now.toISO() }}",
+      "transcript": "={{ $json.text }}",
+      "tasks": "={{ $json.output }}",
+      "status": "created after approval"
+     }
+    }
+   },
+   "id": "1ac86c1f-a81e-4429-ae97-94dc87097123",
+   "name": "Log Created Items",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    2400,
+    180
+   ]
+  },
+  {
+   "parameters": {
+    "assignments": {
+     "assignments": [
+      {
+       "id": "8098f468",
+       "name": "status",
+       "value": "skipped — not approved",
+       "type": "string"
+      }
+     ]
+    },
+    "options": {}
+   },
+   "id": "505dfbb4-2527-4c43-a72d-d2f8f5390f2a",
+   "name": "Log Skipped",
+   "type": "n8n-nodes-base.set",
+   "typeVersion": 3.4,
+   "position": [
+    1680,
+    420
+   ]
+  },
+  {
+   "parameters": {
+    "mode": "append",
+    "options": {}
+   },
+   "id": "da504fdc-8a29-406e-b8cb-8cba8629300c",
+   "name": "Merge Results",
+   "type": "n8n-nodes-base.merge",
+   "typeVersion": 3,
+   "position": [
+    2640,
+    180
+   ]
+  },
+  {
+   "parameters": {
+    "operation": "append",
+    "documentId": "YOUR_EXECUTION_LOG_SHEET_ID",
+    "sheetName": "Log",
+    "columns": {
+     "mappingMode": "defineBelow",
+     "value": {
+      "timestamp": "={{ $now.toISO() }}",
+      "workflow": "Voice-Note-to-Everything",
+      "status": "={{ $json.status || 'done' }}",
+      "detail": "={{ $json.output || $json.reason || '' }}"
+     }
+    }
+   },
+   "id": "829f0858-3946-4f98-9262-f7d63febef8f",
+   "name": "Log Execution",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    2880,
+    180
+   ]
+  },
+  {
+   "parameters": {},
+   "id": "5bef04a8-785d-4385-a581-53eb516a8825",
+   "name": "Error Trigger",
+   "type": "n8n-nodes-base.errorTrigger",
+   "typeVersion": 1,
+   "position": [
+    0,
+    700
+   ]
+  },
+  {
+   "parameters": {
+    "operation": "append",
+    "documentId": "YOUR_ERROR_LOG_SHEET_ID",
+    "sheetName": "Errors",
+    "columns": {
+     "mappingMode": "defineBelow",
+     "value": {
+      "timestamp": "={{ $now.toISO() }}",
+      "workflow": "={{ $json.workflow?.name }}",
+      "node": "={{ $json.execution?.lastNodeExecuted }}",
+      "error": "={{ $json.execution?.error }}",
+      "execution_id": "={{ $json.execution?.id }}"
+     }
+    }
+   },
+   "id": "da52ac25-ff96-4262-b0b5-81620881e00b",
+   "name": "Log Error to Sheet",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    240,
+    700
+   ]
+  },
+  {
+   "parameters": {
+    "operation": "sendMessage",
+    "chatId": "YOUR_TELEGRAM_CHAT_ID",
+    "text": "=Voice-Note-to-Everything FAILED: {{ $json.error }}",
+    "additionalFields": {}
+   },
+   "id": "3f38695b-d5c1-4265-bf79-4820703c0395",
+   "name": "Notify on Error (Telegram)",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 2,
+   "position": [
+    480,
+    700
+   ]
+  }
+ ],
+ "connections": {
+  "Telegram Trigger": {
+   "main": [
+    [
+     {
+      "node": "Get Voice File",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Get Voice File": {
+   "main": [
+    [
+     {
+      "node": "Transcribe Voice (STT — placeholder)",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Split into Tasks / Events / Ideas (Gemini Agent)": {
+   "main": [
+    [
+     {
+      "node": "Send Approval Summary",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Send Approval Summary": {
+   "main": [
+    [
+     {
+      "node": "Wait for Approval",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Wait for Approval": {
+   "main": [
+    [
+     {
+      "node": "Approved?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Create Todoist Tasks": {
+   "main": [
+    [
+     {
+      "node": "Create Calendar Events",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Create Calendar Events": {
+   "main": [
+    [
+     {
+      "node": "Save Ideas to Notion",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Save Ideas to Notion": {
+   "main": [
+    [
+     {
+      "node": "Log Created Items",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Log Created Items": {
+   "main": [
+    [
+     {
+      "node": "Merge Results",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Log Skipped": {
+   "main": [
+    [
+     {
+      "node": "Merge Results",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Merge Results": {
+   "main": [
+    [
+     {
+      "node": "Log Execution",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Gemini Chat Model": {
+   "ai_languageModel": [
+    [
+     {
+      "node": "Split into Tasks / Events / Ideas (Gemini Agent)",
+      "type": "ai_languageModel",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Approved?": {
+   "main": [
+    [
+     {
+      "node": "Create Todoist Tasks",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Log Skipped",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Error Trigger": {
+   "main": [
+    [
+     {
+      "node": "Log Error to Sheet",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Log Error to Sheet": {
+   "main": [
+    [
+     {
+      "node": "Notify on Error (Telegram)",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Transcribe Voice (STT — placeholder)": {
+   "main": [
+    [
+     {
+      "node": "Split into Tasks / Events / Ideas (Gemini Agent)",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "active": false,
+ "settings": {
+  "executionOrder": "v1"
+ },
+ "pinData": {}
+}

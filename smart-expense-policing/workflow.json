@@ -1,0 +1,651 @@
+{
+  "name": "Smart Expense Policing \u2014 Siva",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "Company-card transaction webhook -> Gemini checks it against the policy sheet -> normal spend auto-approves (LOG ONLY, no money moves) -> odd spend gets a Slack DM asking the employee for justification -> no reply in 24h escalates to finance. Memory: policy + past decisions live in Sheets; the Gemini prompt references them, no live DB is invented.\nCredentials to set on import (nodes show 'No credential set'): Google Sheets OAuth2 (policy + all log nodes); Google Gemini API (chat model); Slack (DM, escalation, trigger); Telegram (error notify).",
+        "height": 120,
+        "width": 420
+      },
+      "id": "7c5e2437-c9cf-46c8-80e7-cd2040278304",
+      "name": "Sticky Note \u2014 How this works",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -260
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "990d701a-881e-4c34-bd11-099b4c5248ca",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "card-transaction",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "b990c16c-1fae-405d-a30b-c412b47d27ff",
+      "name": "Webhook \u2014 Card Transaction",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "read",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Policy"
+      },
+      "id": "8b710966-ccf3-44bc-bd0c-11bfe8fb0c01",
+      "name": "Read Expense Policy",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You police company-card expenses against the policy rows provided. For the transaction, return ONLY valid JSON: {withinPolicy (true/false), reason (short), policyRule (the rule applied or null)}. Be strict on: receipts required above the policy limit, banned categories, and duplicate claims. Never approve on a guess \u2014 if the policy does not cover it, withinPolicy=false."
+        },
+        "promptType": "define"
+      },
+      "id": "9babbe87-3149-49d0-974b-9a182abfbd55",
+      "name": "Gemini Check Policy",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        480,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.0-flash",
+        "options": {}
+      },
+      "id": "53d4973a-6ba8-4476-aa7e-47e127a019a3",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        480,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "13454797-2669-46a9-a31a-37b191d08199",
+              "leftValue": "={{ $json.withinPolicy }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.string.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true
+      },
+      "id": "f983e0ce-24a3-4e49-a8fa-b686fd46b419",
+      "name": "Within Policy?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        720,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [],
+          "value": {
+            "Employee": "={{ $json.employee }}",
+            "Merchant": "={{ $json.merchant }}",
+            "Amount": "={{ $json.amount }}",
+            "Currency": "={{ $json.currency }}",
+            "Policy Rule": "={{ $json.policyRule }}",
+            "Status": "AUTO-APPROVED",
+            "Logged At": "={{ $now.toISO() }}"
+          }
+        },
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "resource": "sheet",
+        "sheetName": "Approved"
+      },
+      "id": "564fe441-ee50-49fe-9bfb-4f35d179f4db",
+      "name": "Log Approved Expense",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $json.employeeSlackId }}",
+        "operation": "postMessage",
+        "text": "=Your card transaction {{ $json.merchant }} \u2014 {{ $json.currency }} {{ $json.amount }} needs justification: {{ $json.reason }} (rule: {{ $json.policyRule }}).\nPlease reply here with the business reason and receipt within 24 hours.",
+        "otherOptions": {}
+      },
+      "id": "10be8341-2dd7-46f4-a4c3-84199ca235b7",
+      "name": "Ask Employee for Justification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [
+        960,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 24,
+        "unit": "hours",
+        "resume": "afterTimeInterval"
+      },
+      "id": "6c9e9d2c-ca7c-426c-936a-e0dca7f3424b",
+      "name": "Wait 24 Hours",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "read",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Justifications"
+      },
+      "id": "ced20524-be34-474c-beea-f59f064a1819",
+      "name": "Check Justification",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "7821df5c-40f1-4149-ac9c-ecaea8190178",
+              "leftValue": "={{ $json.Justification }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.string.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true
+      },
+      "id": "00cd590b-ff0d-45bd-bc0e-cca42c50bf0b",
+      "name": "Justification Received?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [],
+          "value": {
+            "Employee": "={{ $json.Employee }}",
+            "Merchant": "={{ $json.Merchant }}",
+            "Amount": "={{ $json.Amount }}",
+            "Justification": "={{ $json.Justification }}",
+            "Status": "REVIEWED",
+            "Logged At": "={{ $now.toISO() }}"
+          }
+        },
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "resource": "sheet",
+        "sheetName": "Reviewed"
+      },
+      "id": "1d7ec2e2-27c8-4f5d-aa77-31762da8bcd4",
+      "name": "Log Justification Reviewed",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "channel": "#finance",
+        "operation": "postMessage",
+        "text": "=ESCALATION: no justification in 24h.\nEmployee: {{ $json.Employee }}\nMerchant: {{ $json.Merchant }} \u2014 {{ $json.Amount }}\nReason flagged: {{ $json.Reason || 'policy breach' }}. Please review.",
+        "otherOptions": {}
+      },
+      "id": "5e25a944-1bd3-465d-a998-45476206a6fc",
+      "name": "Escalate to Finance",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [],
+          "value": {
+            "Employee": "={{ $json.Employee }}",
+            "Merchant": "={{ $json.Merchant }}",
+            "Amount": "={{ $json.Amount }}",
+            "Status": "ESCALATED TO FINANCE",
+            "Logged At": "={{ $now.toISO() }}"
+          }
+        },
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "resource": "sheet",
+        "sheetName": "Escalations"
+      },
+      "id": "d20649bc-cf27-4db8-b241-2545a454c460",
+      "name": "Log Escalation",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "channel": "YOUR_SLACK_CHANNEL_ID",
+        "trigger": "message"
+      },
+      "id": "0ff0521b-7b49-4e6d-af77-43bc95497d55",
+      "name": "Slack Trigger \u2014 Justification Reply",
+      "type": "n8n-nodes-base.slackTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [],
+          "value": {
+            "Employee": "={{ $json.user }}",
+            "Merchant": "={{ $json.text }}",
+            "Justification": "={{ $json.text }}",
+            "Received At": "={{ $now.toISO() }}"
+          }
+        },
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "resource": "sheet",
+        "sheetName": "Justifications"
+      },
+      "id": "124d52c2-a888-423e-9bd1-35ad6df8ea07",
+      "name": "Record Justification",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [],
+          "value": {
+            "At": "={{ $now.toISO() }}",
+            "Workflow": "Smart Expense Policing",
+            "Result": "={{ $json.Status || 'checked' }}",
+            "Detail": "={{ $json.Merchant || $json.merchant || '' }}"
+          }
+        },
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "resource": "sheet",
+        "sheetName": "Execution Log"
+      },
+      "id": "5c968809-0231-4a76-b847-84a4ffd230f7",
+      "name": "Log Execution",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        240
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "d39b8d21-96bc-485d-b24c-8c4a167a1be6",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [],
+          "value": {
+            "At": "={{ $now.toISO() }}",
+            "Error": "={{ $json.error?.message || JSON.stringify($json.error || $json) }}",
+            "Node": "={{ $json.execution?.lastNodeExecuted || $json.node || 'unknown' }}",
+            "Workflow": "={{ $json.workflow?.name || 'unknown' }}"
+          }
+        },
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "resource": "sheet",
+        "sheetName": "Errors"
+      },
+      "id": "bd505ce8-46fb-4e97-addb-07505daa7ff4",
+      "name": "Log Error to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "operation": "sendMessage",
+        "text": "=n8n workflow error. Check the Errors sheet.\nNode: {{ $json.execution?.lastNodeExecuted || 'unknown' }}\nError: {{ $json.error?.message || 'see Errors sheet' }}"
+      },
+      "id": "3a062008-e356-42aa-9cfc-bc03b81bb505",
+      "name": "Notify Error via Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        960
+      ]
+    }
+  ],
+  "connections": {
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "index": 0,
+            "node": "Gemini Check Policy",
+            "type": "ai_languageModel"
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Read Expense Policy",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Webhook \u2014 Card Transaction": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Read Expense Policy",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Read Expense Policy": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Gemini Check Policy",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Gemini Check Policy": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Within Policy?",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Within Policy?": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Log Approved Expense",
+            "type": "main"
+          }
+        ],
+        [
+          {
+            "index": 0,
+            "node": "Ask Employee for Justification",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Log Approved Expense": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Log Execution",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Ask Employee for Justification": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Wait 24 Hours",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Wait 24 Hours": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Check Justification",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Check Justification": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Justification Received?",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Justification Received?": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Escalate to Finance",
+            "type": "main"
+          }
+        ],
+        [
+          {
+            "index": 0,
+            "node": "Log Justification Reviewed",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Escalate to Finance": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Log Escalation",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Log Escalation": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Log Execution",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Log Justification Reviewed": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Log Execution",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Slack Trigger \u2014 Justification Reply": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Record Justification",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Record Justification": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Log Execution",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Log Error to Sheet",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Log Error to Sheet": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Notify Error via Telegram",
+            "type": "main"
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

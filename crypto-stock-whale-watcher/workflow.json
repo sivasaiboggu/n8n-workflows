@@ -1,0 +1,447 @@
+{
+ "name": "Crypto/Stock Whale Watcher — Siva",
+ "nodes": [
+  {
+   "parameters": {
+    "content": "CREDENTIALS NEEDED (pick/create on import — no credential is set in this file):\nn8n shows \"No credential set\" on each node below; click the node and pick/create the credential. No key or secret is stored in this file.\n- Google Gemini(PaLM) Api (googlePalmApi) — Gemini Chat Model\n- Telegram account (telegramApi) — Send Telegram Alert, Notify Error via Telegram\n- Google Sheets account (googleSheetsOAuth2) — Log Execution, Log Error to Sheet",
+    "height": 190,
+    "width": 560,
+    "color": 4
+   },
+   "id": "9b4982c7-2109-4304-9231-da30a06f734e",
+   "name": "Sticky Note — Credentials",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    0,
+    -470
+   ]
+  },
+  {
+   "parameters": {
+    "content": "Crypto/Stock Whale Watcher — Siva\nEvery 15 min poll public market APIs for large moves, Gemini adds news context, Telegram alert with a short 'why it matters' note.\nNO financial advice. NO auto-trading. No trade action exists in this workflow.",
+    "height": 140,
+    "width": 560,
+    "color": 4
+   },
+   "id": "08cf0623-450c-46a1-bc75-8acaaaf3d46e",
+   "name": "About This Workflow",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    0,
+    -260
+   ]
+  },
+  {
+   "parameters": {
+    "rule": {
+     "interval": [
+      {
+       "field": "minutes",
+       "minutesInterval": 15
+      }
+     ]
+    }
+   },
+   "id": "90f4655f-0906-420e-9b84-62b41643aaec",
+   "name": "Every 15 minutes",
+   "type": "n8n-nodes-base.scheduleTrigger",
+   "typeVersion": 1.2,
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "method": "GET",
+    "url": "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=percent_change_24h_desc&per_page=20&page=1&price_change_percentage=24h",
+    "authentication": "none",
+    "options": {
+     "response": {
+      "response": {
+       "responseFormat": "json"
+      }
+     },
+     "timeout": 10000
+    }
+   },
+   "id": "147c34ed-e745-4e2c-9e40-990af3e3bcf2",
+   "name": "Fetch Crypto Large Moves",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    240,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "method": "GET",
+    "url": "https://query2.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds=day_gainers&count=20",
+    "authentication": "none",
+    "options": {
+     "response": {
+      "response": {
+       "responseFormat": "json"
+      }
+     },
+     "timeout": 10000
+    }
+   },
+   "id": "153919d3-9725-4cd1-ad17-096e277f8b9e",
+   "name": "Fetch Stock Large Moves",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    480,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "mode": "append"
+   },
+   "id": "310ac3a5-ba30-418b-93e3-fb4e4989502e",
+   "name": "Merge Large Moves",
+   "type": "n8n-nodes-base.merge",
+   "typeVersion": 3,
+   "position": [
+    720,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose"
+     },
+     "conditions": [
+      {
+       "id": "b6c71df9-8ae2-471a-add7-166c3ba03df2",
+       "leftValue": "={{ $json.price_change_percentage_24h || $json.regularMarketChangePercent || 0 }}",
+       "rightValue": 5,
+       "operator": {
+        "type": "number",
+        "operation": "gt"
+       }
+      }
+     ],
+     "combinator": "and"
+    }
+   },
+   "id": "b562985f-20ee-4e42-aae3-9029857aca54",
+   "name": "Filter Whale Threshold",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    960,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "// Guard: this workflow only ALERTS. Strip any trade-execution instruction.\nfor (const item of $input.all()) { item.json.trade_action = 'NONE — alert only, no trading'; item.json.financial_advice = 'NONE — informational alert only'; }\nreturn $input.all();"
+   },
+   "id": "32063c4a-9846-47e3-9b51-13e73a2e1811",
+   "name": "Enforce No-Trade Guard",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1200,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "promptType": "text",
+    "text": "=For each large move in the input, write a 2-3 sentence 'why it matters' note using recent news context. Asset, % move, likely driver (news/earnings/on-chain flow if known, else say 'driver unclear'). End with: 'Informational only — not financial advice, no trade placed.' Input: {{ JSON.stringify($json).slice(0, 4000) }}",
+    "options": {}
+   },
+   "id": "fb9f8922-6d2e-4a52-8b22-c1134efe3eaa",
+   "name": "Whale Context Analyst",
+   "type": "@n8n/n8n-nodes-langchain.agent",
+   "typeVersion": 1.7,
+   "position": [
+    1440,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "model": "gemini-2.0-flash",
+    "options": {
+     "temperature": 0.3
+    }
+   },
+   "id": "a2539df0-5d94-4038-9345-b8b571a54128",
+   "name": "Gemini Chat Model",
+   "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+   "typeVersion": 1,
+   "position": [
+    1440,
+    280
+   ]
+  },
+  {
+   "parameters": {
+    "assignments": {
+     "assignments": [
+      {
+       "id": "23a4858d-8930-4b7e-901f-14a5f9299c99",
+       "name": "alert_text",
+       "type": "string",
+       "value": "=🐋 Whale Watcher\n\n{{ $json.output || $json.text || JSON.stringify($json).slice(0, 1000) }}\n\nInformational only — not financial advice."
+      }
+     ]
+    },
+    "options": {}
+   },
+   "id": "5badd6ed-a48e-4c34-b22b-27581a11dd61",
+   "name": "Format Telegram Alert",
+   "type": "n8n-nodes-base.set",
+   "typeVersion": 3.4,
+   "position": [
+    1680,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "chatId": "YOUR_TELEGRAM_CHAT_ID",
+    "text": "= {{ $json.alert_text }}",
+    "additionalFields": {
+     "appendAttribution": false
+    }
+   },
+   "id": "86e3ccd0-1cc2-457d-8d43-9cfa80ed57e5",
+   "name": "Send Telegram Alert",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    1920,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Execution Log",
+    "operation": "append",
+    "columns": {
+     "mappingMode": "manual",
+     "value": {
+      "timestamp": "={{ $now }}",
+      "workflow": "Crypto/Stock Whale Watcher — Siva",
+      "status": "completed",
+      "summary": "={{ JSON.stringify($json).slice(0, 500) }}"
+     }
+    }
+   },
+   "id": "50388542-8a1f-4ad7-8826-9ad92ea3f543",
+   "name": "Log Execution",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    2160,
+    0
+   ]
+  },
+  {
+   "parameters": {},
+   "id": "fc397dee-474f-42ba-9fb4-a231caba713f",
+   "name": "Error Trigger",
+   "type": "n8n-nodes-base.errorTrigger",
+   "typeVersion": 1,
+   "position": [
+    0,
+    400
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Error Log",
+    "operation": "append",
+    "columns": {
+     "mappingMode": "manual",
+     "value": {
+      "timestamp": "={{ $now }}",
+      "workflow": "={{ $json.workflow?.name || 'this workflow' }}",
+      "error": "={{ $json.error?.message || JSON.stringify($json) }}",
+      "node": "={{ $json.node || '' }}"
+     }
+    }
+   },
+   "id": "139a2291-a6dc-429b-a3f4-165f19fbe001",
+   "name": "Log Error to Sheet",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    240,
+    400
+   ]
+  },
+  {
+   "parameters": {
+    "chatId": "YOUR_TELEGRAM_CHAT_ID",
+    "text": "=⚠️ Workflow error: {{ $json.error?.message || 'see Error Log sheet' }}. Check the Error Log tab in YOUR_GOOGLE_SHEET_ID.",
+    "additionalFields": {
+     "appendAttribution": false
+    }
+   },
+   "id": "c8db9e98-6129-4871-a548-2407b8a8adb4",
+   "name": "Notify Error via Telegram",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    480,
+    400
+   ]
+  }
+ ],
+ "connections": {
+  "Every 15 minutes": {
+   "main": [
+    [
+     {
+      "node": "Fetch Crypto Large Moves",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Fetch Crypto Large Moves": {
+   "main": [
+    [
+     {
+      "node": "Fetch Stock Large Moves",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Fetch Stock Large Moves": {
+   "main": [
+    [
+     {
+      "node": "Merge Large Moves",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Merge Large Moves": {
+   "main": [
+    [
+     {
+      "node": "Filter Whale Threshold",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Filter Whale Threshold": {
+   "main": [
+    [
+     {
+      "node": "Enforce No-Trade Guard",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    []
+   ]
+  },
+  "Enforce No-Trade Guard": {
+   "main": [
+    [
+     {
+      "node": "Whale Context Analyst",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Gemini Chat Model": {
+   "ai_languageModel": [
+    [
+     {
+      "node": "Whale Context Analyst",
+      "type": "ai_languageModel",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Whale Context Analyst": {
+   "main": [
+    [
+     {
+      "node": "Format Telegram Alert",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Format Telegram Alert": {
+   "main": [
+    [
+     {
+      "node": "Send Telegram Alert",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Send Telegram Alert": {
+   "main": [
+    [
+     {
+      "node": "Log Execution",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Error Trigger": {
+   "main": [
+    [
+     {
+      "node": "Log Error to Sheet",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Log Error to Sheet": {
+   "main": [
+    [
+     {
+      "node": "Notify Error via Telegram",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "active": false,
+ "settings": {
+  "executionOrder": "v1"
+ },
+ "pinData": {}
+}

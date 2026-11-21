@@ -1,0 +1,942 @@
+{
+  "name": "Job Hunter Autopilot \u2014 Siva",
+  "nodes": [
+    {
+      "id": "05713b1a-4746-4574-a44c-d44b98f8f4ff",
+      "name": "Sticky Note \u2014 Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -320
+      ],
+      "parameters": {
+        "color": 4,
+        "content": "## Job Hunter Autopilot \u2014 setup\n1. Create the Google Sheet (tabs: Applied Log, Tailored Applications, Decisions, Execution Log, Errors) \u2014 see SETUP.md.\n2. Connect credentials: Google Sheets, Google Gemini API, Google Drive, Telegram.\n3. Paste your Sheet ID and Drive folder ID where marked YOUR_*.\n4. Test with Manual Trigger first. Only then activate the schedule.",
+        "height": 260,
+        "width": 420
+      }
+    },
+    {
+      "id": "e44c76fc-64fc-4927-8d61-73041f17e558",
+      "name": "Sticky Note \u2014 Rules",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        480,
+        -320
+      ],
+      "parameters": {
+        "color": 6,
+        "content": "## Hard rules (do not remove)\n- Paid roles only. NEVER Internshala \u2014 it is not in the board list.\n- Boards: Wellfound, Built In, Shine, Jobfound, Himalayas, Cutshort, HiringCafe, LinkedIn Jobs.\n- Nothing is applied to automatically. Telegram Apply/Skip buttons only LOG\n  Siva's decision and send him the apply link + tailored pack.\n- Never invent a role, salary, company or email. Scores come from Siva's real CV.",
+        "height": 260,
+        "width": 420
+      }
+    },
+    {
+      "id": "fa7f96a3-7524-414c-8e85-1cb06fdf2796",
+      "name": "Sticky Note \u2014 Memory",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        960,
+        -320
+      ],
+      "parameters": {
+        "color": 5,
+        "content": "## Memory / learning\nThe Applied Log + Decisions sheets are the memory layer: every role seen,\nevery score and every Apply/Skip decision is logged, so the scorer can be\ntuned from what Siva actually applies to. No live DB \u2014 Sheets only.",
+        "height": 260,
+        "width": 420
+      }
+    },
+    {
+      "id": "475f2e9f-9084-435a-b012-bbcc2c7e2690",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "264d4619-add3-424b-ad3b-315fb2401bdc",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        240
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "expression": "15 9 * * *",
+              "field": "cronExpression"
+            }
+          ]
+        },
+        "timezone": "Asia/Kolkata"
+      },
+      "notes": "Runs daily at 09:15 IST. Manual Trigger is for testing."
+    },
+    {
+      "id": "a7cdca0e-d0be-4029-be28-9ac60948f289",
+      "name": "Board Sources",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        120
+      ],
+      "parameters": {
+        "jsCode": "const boards = [\n  { board: 'Wellfound',  searchUrl: 'https://wellfound.com/jobs?query=AI%20intern' },\n  { board: 'Built In',   searchUrl: 'https://builtin.com/jobs?search=AI%20intern' },\n  { board: 'Shine',      searchUrl: 'https://www.shine.com/job-search/ai-intern-jobs' },\n  { board: 'Jobfound',   searchUrl: 'https://jobfound.app/jobs?search=AI' },\n  { board: 'Himalayas',  searchUrl: 'https://himalayas.app/jobs/ai' },\n  { board: 'Cutshort',   searchUrl: 'https://cutshort.io/jobs/ai-intern-jobs' },\n  { board: 'HiringCafe', searchUrl: 'https://hiring.cafe/jobs?search=AI' },\n  { board: 'LinkedIn Jobs', searchUrl: 'https://www.linkedin.com/jobs/search/?keywords=AI%20intern' }\n];\n// NEVER Internshala \u2014 deliberately not in this list.\nreturn boards.map(b => ({ json: b }));"
+      }
+    },
+    {
+      "id": "62c29aac-1802-4f64-8617-25e0049c6e4e",
+      "name": "Fetch Board Pages",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        120
+      ],
+      "parameters": {
+        "method": "GET",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000
+        },
+        "url": "={{ $json.searchUrl }}"
+      },
+      "notes": "One request per board. Boards that block scraping error here \u2014 the Error Trigger logs it and the run continues.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "c4defb06-4882-472d-8f35-b3de0d52c0ad",
+      "name": "Parse & Filter Roles",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        120
+      ],
+      "parameters": {
+        "jsCode": "// Parse each board page (JSON first, then link scraping fallback).\n// Filters: fitting role keywords + paid only. Never invents a role.\nconst FIT = /ai agent|ai engineer|software developer|machine learning|gen ?ai|llm|agentic|full stack/i;\nconst UNPAID = /unpaid|no stipend|volunteer/i;\nconst out = [];\nfor (const item of $input.all()) {\n  const board = item.json.board || 'unknown';\n  const raw = typeof item.json.data === 'string' ? item.json.data : JSON.stringify(item.json.data || item.json);\n  let roles = [];\n  try {\n    const parsed = JSON.parse(raw);\n    const arr = Array.isArray(parsed) ? parsed : (parsed.jobs || parsed.results || parsed.data || []);\n    roles = arr.map(r => ({ title: r.title || r.name || '', company: r.company || r.companyName || '', url: r.url || r.link || '', stipend: r.stipend || r.salary || '' }));\n  } catch (e) {\n    const links = [...raw.matchAll(/<a[^>]+href=\\\"([^\\\"]+)\\\"[^>]*>([^<]{5,120})<\\/a>/g)];\n    roles = links.map(m => ({ title: m[2].trim(), company: '', url: m[1], stipend: '' }));\n  }\n  for (const r of roles) {\n    if (!FIT.test(r.title)) continue;\n    if (UNPAID.test(r.title + ' ' + (r.stipend || ''))) continue;\n    out.push({ json: { board, title: r.title, company: r.company || 'unknown', url: r.url, stipend: r.stipend || '' } });\n  }\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "1f8c728b-99b7-4141-9bd4-287cb2c3a70e",
+      "name": "Read Applied Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        120
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "read",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Applied Log"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "218b772a-01e1-49d0-a573-69bb70f9a288",
+      "name": "Dedupe New Roles",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        120
+      ],
+      "parameters": {
+        "jsCode": "// Dedupe parsed roles against the Applied Log sheet (company + title).\nconst parsed = $('Parse & Filter Roles').all().map(i => i.json);\nconst applied = new Set($input.all().map(i => ((i.json.Company || i.json.company || '') + '|' + (i.json.Role || i.json.role || '')).toLowerCase()));\nconst fresh = parsed.filter(r => !applied.has(((r.company || '') + '|' + (r.title || '')).toLowerCase()));\nreturn fresh.map(r => ({ json: r }));"
+      }
+    },
+    {
+      "id": "505342db-1af7-48de-a621-23246ff737dd",
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1340,
+        120
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "notes": "One role at a time."
+    },
+    {
+      "id": "d82bf624-57b7-47e6-b5be-a9242dd2f217",
+      "name": "Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        340
+      ],
+      "parameters": {
+        "modelName": "models/gemini-2.0-flash",
+        "options": {}
+      },
+      "notes": "Free-tier Gemini model. Connect your Google Gemini API credential here."
+    },
+    {
+      "id": "2bec67d9-c6f9-4c2d-802e-97ce953340b7",
+      "name": "Score & Tailor Role",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        1560,
+        120
+      ],
+      "parameters": {
+        "options": {
+          "systemMessage": "You are Siva's job-hunting assistant. Siva is Sivasai Boggu, BTech Computer Science at IIIT Kottayam (2023-2027), CGPA 7.73. Skills: Python, TypeScript, JavaScript, React, Next.js, Node.js, FastAPI, PostgreSQL, MongoDB, PyTorch, LangChain, LangGraph, RAG, AWS, Docker, Kubernetes, Terraform. Internships: Whispry (May 2026-Present, Software Developer Intern, MERN, Rs 20,000/month), NULLCLASS (Jul-Oct 2025, Next.js/React), CORIZO (May-Jul 2025, React/Firebase e-commerce). Projects: HireMind AI (React/TypeScript, Gemini, resume analysis), SecureFlow (Python, FastAPI, PyTorch/BERT, AWS, Terraform, cloud security), AuditMind (Python, FastAPI, BERT, RAG, Gemini), AI SDR Agent (LangGraph, Gemini, Apollo, Gmail), Voice Receptionist AI. Email sivasaiboggu@gmail.com, phone +91 9573719115, Gooty, Andhra Pradesh. Available immediately. Paid roles ONLY. Score honestly against this CV \u2014 never invent skills, experience or salary. A role that needs 2+ years experience or a skill Siva does not have scores low."
+        },
+        "promptType": "define",
+        "text": "=Score this role against Siva's CV and tailor application material for it.\nRole: {{ $json.title }} at {{ $json.company }} ({{ $json.board }})\nListing: {{ $json.url }} | Stipend/salary shown: {{ $json.stipend || 'not stated' }}\nReply with ONLY this JSON, no other text: {\"score\": 0, \"fitReason\": \"...\", \"resumeBullets\": [\"...\", \"...\", \"...\"], \"coverLetter\": \"...\", \"recommendation\": \"apply\" or \"skip\"}. Cover letter under 150 words, honest, in Siva's voice, ending asking for a 15-minute call."
+      },
+      "notes": "Scores 0-100 against Siva's real CV and writes a tailored cover letter. Never invents CV facts."
+    },
+    {
+      "id": "54e8a29e-60ea-402a-9e6a-f70ac7fe510a",
+      "name": "Parse Score Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        120
+      ],
+      "parameters": {
+        "jsCode": "// Parse the agent JSON; on failure keep the role with score 0 so it is skipped, never guessed.\nconst raw = $input.first().json.output || $input.first().json.text || '';\nconst prev = $('Split In Batches').first().json;\nlet p = {};\ntry { p = JSON.parse(raw); } catch (e) {\n  const m = String(raw).match(/\\{[\\s\\S]*\\}/);\n  try { p = m ? JSON.parse(m[0]) : {}; } catch (e2) { p = {}; }\n}\nreturn [{ json: { ...prev, score: typeof p.score === 'number' ? p.score : 0,\n  fitReason: p.fitReason || 'Could not parse agent output',\n  resumeBullets: p.resumeBullets || [], coverLetter: p.coverLetter || '',\n  recommendation: p.recommendation || 'skip' } }];"
+      }
+    },
+    {
+      "id": "b92fbd10-b0eb-4a3d-96e4-b3e2e64654b1",
+      "name": "Score >= 60?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2000,
+        120
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "score-check",
+              "leftValue": "={{ $json.score >= 60 }}",
+              "operator": {
+                "name": "filter.operator.boolean.true",
+                "operation": "true",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      },
+      "notes": "Below 60 the role is logged as skipped \u2014 Siva never sees it."
+    },
+    {
+      "id": "c34338ef-2d30-4317-8805-ff6ff4aec530",
+      "name": "Build Tailored Pack",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2220,
+        40
+      ],
+      "parameters": {
+        "jsCode": "// Build the tailored resume bullets + cover letter as one text file.\nconst j = $input.first().json;\nconst text = [\n  'Sivasai Boggu \u2014 Tailored Application',\n  'Role: ' + j.title + ' at ' + j.company + ' (' + j.board + ')',\n  'Listing: ' + j.url,\n  'Fit score: ' + j.score + '/100 \u2014 ' + j.fitReason,\n  '',\n  'Tailored resume bullets:',\n  ...(j.resumeBullets || []).map(b => '- ' + b),\n  '',\n  'Cover letter:',\n  j.coverLetter || '',\n  '',\n  'Sivasai Boggu | sivasaiboggu@gmail.com | +91 9573719115 | Gooty, Andhra Pradesh',\n  'BTech CS, IIIT Kottayam (2023-2027) | CGPA 7.73 | Available immediately'\n].join('\\n');\nreturn [{ json: { ...j, packText: text,\n  fileName: ('Tailored-' + (j.company || 'company') + '-' + (j.title || 'role')).replace(/[^A-Za-z0-9-]+/g, '-') + '.txt' } }];"
+      }
+    },
+    {
+      "id": "f9811def-0655-4241-9a91-cd853e0b084e",
+      "name": "Convert Pack to File",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        2440,
+        40
+      ],
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "packText",
+        "options": {}
+      },
+      "notes": "Turns the pack text into a binary file for the Drive upload."
+    },
+    {
+      "id": "7c1207eb-9526-425a-8962-a71872cf720f",
+      "name": "Save Pack to Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2660,
+        40
+      ],
+      "parameters": {
+        "operation": "upload",
+        "binaryPropertyName": "data",
+        "fileName": "={{ $json.fileName }}",
+        "options": {
+          "parentFolderId": "YOUR_DRIVE_FOLDER_ID"
+        },
+        "resource": "file"
+      },
+      "notes": "Uploads the tailored pack into YOUR_DRIVE_FOLDER_ID.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "3eb72f77-a0bc-4832-92ca-820e7d8d1883",
+      "name": "Log Tailored Application",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        2880,
+        40
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Tailored Applications",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Board"
+          ],
+          "schema": [],
+          "value": {
+            "Board": "={{ $('Parse Score Output').first().json.board }}",
+            "Company": "={{ $('Parse Score Output').first().json.company }}",
+            "Role": "={{ $('Parse Score Output').first().json.title }}",
+            "Score": "={{ $('Parse Score Output').first().json.score }}",
+            "Fit Reason": "={{ $('Parse Score Output').first().json.fitReason }}",
+            "Listing URL": "={{ $('Parse Score Output').first().json.url }}",
+            "Drive File": "={{ $json.name || $json.id || '' }}",
+            "Logged At": "={{ $now.toISO() }}"
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "c69acb8d-963a-44a2-8452-4366cefcafe1",
+      "name": "Telegram: Apply or Skip?",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3100,
+        40
+      ],
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=New fitting role ({{ $('Parse Score Output').first().json.score }}/100)\n\n{{ $('Parse Score Output').first().json.title }} at {{ $('Parse Score Output').first().json.company }} ({{ $('Parse Score Output').first().json.board }})\n{{ $('Parse Score Output').first().json.fitReason }}\n\nListing: {{ $('Parse Score Output').first().json.url }}\nTailored pack saved to Drive. Tap Apply to log your decision and get the apply link.",
+        "additionalFields": {
+          "reply_markup": {
+            "inline_keyboard": [
+              [
+                {
+                  "text": "\u2705 Apply",
+                  "callback_data": "apply"
+                },
+                {
+                  "text": "\u23ed Skip",
+                  "callback_data": "skip"
+                }
+              ]
+            ]
+          }
+        }
+      },
+      "notes": "HUMAN APPROVAL STEP. Nothing is applied to until Siva taps Apply \u2014 and even then the workflow only logs the decision and returns the link; the actual application stays with Siva.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "ff28a4e0-3c16-4abf-a659-ba33c6de3b5e",
+      "name": "Log Skipped Role",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        2220,
+        260
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Decisions",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Company"
+          ],
+          "schema": [],
+          "value": {
+            "Company": "={{ $json.company }}",
+            "Role": "={{ $json.title }}",
+            "Score": "={{ $json.score }}",
+            "Decision": "skipped \u2014 score below 60",
+            "Decided At": "={{ $now.toISO() }}"
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "c85ec498-9169-4151-9ad8-34bddc595dab",
+      "name": "Log Execution",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        3320,
+        40
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Execution Log",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "At"
+          ],
+          "schema": [],
+          "value": {
+            "At": "={{ $now.toISO() }}",
+            "Workflow": "Job Hunter Autopilot \u2014 Siva",
+            "Status": "={{ $json.status || 'completed' }}",
+            "Detail": "= $('Parse Score Output').first().json.title"
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "86b2ab49-1d92-4bff-9b56-e971af9920e3",
+      "name": "Telegram Trigger (Buttons)",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        560
+      ],
+      "parameters": {
+        "updates": [
+          "callback_query"
+        ]
+      },
+      "notes": "Fires when Siva taps Apply or Skip on a Telegram message from this workflow."
+    },
+    {
+      "id": "73b0c271-294d-4faf-b2d4-78df451030f3",
+      "name": "Parse Callback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        560
+      ],
+      "parameters": {
+        "jsCode": "// Parse a Telegram callback_query into an action + the role it refers to.\n// The callback message text carries the role title/company/listing URL.\nconst u = $input.first().json;\nconst cb = u.callback_query || {};\nconst msg = (cb.message && cb.message.text) || '';\nconst action = cb.data || '';\nconst lines = msg.split('\\n');\nconst titleLine = lines.find(l => l.includes(' at ')) || '';\nconst urlLine = lines.find(l => l.startsWith('Listing: ')) || '';\nreturn [{ json: { action, chatId: (cb.message && cb.message.chat && cb.message.chat.id) || 'YOUR_TELEGRAM_CHAT_ID',\n  callbackId: cb.id || '', titleLine, url: urlLine.replace('Listing: ', '').trim(),\n  messageText: msg } }];"
+      }
+    },
+    {
+      "id": "a0140025-522e-4b51-96fd-00a4361a9782",
+      "name": "Apply?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        560
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "apply-check",
+              "leftValue": "={{ $json.action === 'apply' }}",
+              "operator": {
+                "name": "filter.operator.boolean.true",
+                "operation": "true",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "4a95e63c-f3a7-4916-a5bd-9f566ad6ec4a",
+      "name": "Log Apply Decision",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        480
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Decisions",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Company"
+          ],
+          "schema": [],
+          "value": {
+            "Company": "={{ $json.titleLine }}",
+            "Role": "={{ $json.titleLine }}",
+            "Score": "",
+            "Decision": "apply \u2014 Siva approved via Telegram",
+            "Decided At": "={{ $now.toISO() }}"
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "ac287f2c-4547-4d88-b7e7-8106113d66d7",
+      "name": "Telegram: Apply Link",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        960,
+        480
+      ],
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=You chose Apply \u2705\n\n{{ $json.titleLine }}\nApply here: {{ $json.url }}\n\nYour tailored pack (resume bullets + cover letter) is in Google Drive and logged in the Tailored Applications sheet. Complete the application in the browser \u2014 this workflow never submits forms itself.",
+        "additionalFields": {}
+      },
+      "notes": "Decision logged. The application itself is Siva's tap in the browser.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "bdcf4749-3ee3-4090-991a-67f0f8fa3005",
+      "name": "Log Skip Decision",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        680
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Decisions",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Company"
+          ],
+          "schema": [],
+          "value": {
+            "Company": "={{ $json.titleLine }}",
+            "Role": "={{ $json.titleLine }}",
+            "Score": "",
+            "Decision": "skip \u2014 Siva tapped Skip",
+            "Decided At": "={{ $now.toISO() }}"
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "61d9c1c7-a935-46e9-a72f-9eb9402162f6",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        900
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "05ab98da-7641-42e1-8e28-a4eb1e9d565a",
+      "name": "Log Error to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        900
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Errors",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "At"
+          ],
+          "schema": [],
+          "value": {
+            "At": "={{ $now.toISO() }}",
+            "Error": "={{ $json.error?.message || JSON.stringify($json.error || $json) }}",
+            "Node": "={{ $json.execution?.lastNodeExecuted || $json.node || 'unknown' }}",
+            "Workflow": "Job Hunter Autopilot \u2014 Siva"
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "d292555a-29f0-414a-b26f-43f1ffa6f1e6",
+      "name": "Notify Siva (Error)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        900
+      ],
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Workflow Job Hunter Autopilot \u2014 Siva hit an error.\n\nNode: {{ $json.execution?.lastNodeExecuted || 'unknown' }}\nError: {{ $json.error?.message || 'see Errors sheet' }}",
+        "additionalFields": {}
+      },
+      "notes": "Error alert only \u2014 never sends business content.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Board Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Board Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Board Sources": {
+      "main": [
+        [
+          {
+            "node": "Fetch Board Pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Board Pages": {
+      "main": [
+        [
+          {
+            "node": "Parse & Filter Roles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Filter Roles": {
+      "main": [
+        [
+          {
+            "node": "Read Applied Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Applied Log": {
+      "main": [
+        [
+          {
+            "node": "Dedupe New Roles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedupe New Roles": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split In Batches": {
+      "main": [
+        [
+          {
+            "node": "Score & Tailor Role",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Score & Tailor Role",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score & Tailor Role": {
+      "main": [
+        [
+          {
+            "node": "Parse Score Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Score Output": {
+      "main": [
+        [
+          {
+            "node": "Score >= 60?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score >= 60?": {
+      "main": [
+        [
+          {
+            "node": "Build Tailored Pack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Skipped Role",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Tailored Pack": {
+      "main": [
+        [
+          {
+            "node": "Convert Pack to File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert Pack to File": {
+      "main": [
+        [
+          {
+            "node": "Save Pack to Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Pack to Drive": {
+      "main": [
+        [
+          {
+            "node": "Log Tailored Application",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Tailored Application": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Apply or Skip?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram: Apply or Skip?": {
+      "main": [
+        [
+          {
+            "node": "Log Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Trigger (Buttons)": {
+      "main": [
+        [
+          {
+            "node": "Parse Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Callback": {
+      "main": [
+        [
+          {
+            "node": "Apply?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply?": {
+      "main": [
+        [
+          {
+            "node": "Log Apply Decision",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Skip Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Apply Decision": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Apply Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Log Error to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Error to Sheet": {
+      "main": [
+        [
+          {
+            "node": "Notify Siva (Error)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

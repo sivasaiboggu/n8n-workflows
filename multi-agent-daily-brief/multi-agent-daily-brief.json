@@ -1,0 +1,832 @@
+{
+  "name": "Multi-agent Daily Brief \u2014 Siva",
+  "nodes": [
+    {
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "parameters": {},
+      "position": [
+        0,
+        0
+      ],
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1
+    },
+    {
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "expression": "0 7 * * *",
+              "field": "cronExpression"
+            }
+          ]
+        },
+        "timezone": "Asia/Kolkata"
+      },
+      "position": [
+        0,
+        240
+      ],
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "notes": "Runs every morning at 07:00 IST. Manual Trigger is for testing."
+    },
+    {
+      "id": "feed-sources",
+      "name": "Feed Sources",
+      "parameters": {
+        "jsCode": "const feeds = [\n  { source: 'TechCrunch AI',        url: 'https://techcrunch.com/category/artificial-intelligence/feed/' },\n  { source: 'The Verge AI',         url: 'https://www.theverge.com/ai-artificial-intelligence/rss/index.xml' },\n  { source: 'Hacker News',          url: 'https://news.ycombinator.com/rss' },\n  { source: 'MIT Technology Review AI', url: 'https://www.technologyreview.com/topic/artificial-intelligence/feed/' },\n  { source: 'LangChain Blog',       url: 'https://blog.langchain.com/rss.xml' },\n  { source: 'OpenAI News',          url: 'https://openai.com/news/rss.xml' },\n  { source: 'Anthropic News',       url: 'https://www.anthropic.com/news/rss.xml' },\n  { source: 'TechCrunch Startups (funding / hiring signals)', url: 'https://techcrunch.com/category/startups/feed/' }\n];\n// No Internshala anywhere in this workflow.\nreturn feeds.map(f => ({ json: f }));"
+      },
+      "position": [
+        240,
+        120
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+    {
+      "id": "fetch-feeds",
+      "name": "Fetch Feeds",
+      "parameters": {
+        "url": "={{ $json.url }}"
+      },
+      "position": [
+        460,
+        120
+      ],
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "notes": "One RSS fetch per source. A dead feed returns an error here \u2014 the Error Trigger logs it and the run continues with the other feeds."
+    },
+    {
+      "id": "parse-filter-items",
+      "name": "Parse & Filter Items",
+      "parameters": {
+        "jsCode": "// Normalise RSS items. Keep AI / AI-agent / hiring-signal items only, newest first,\n// at most 6 per source so one noisy feed cannot dominate the brief.\nconst FIT = /ai|agent|llm|gpt|language model|machine learning|startup|funding|hiring|job|intern/i;\nconst seen = {};\nconst out = [];\nfor (const item of $input.all()) {\n  const src = item.json.source || 'unknown';\n  const feed = item.json.feed || {};\n  const entries = Array.isArray(feed) ? feed : (feed.items || feed.entries || [feed]);\n  for (const e of entries) {\n    const title = e.title || e.name || '';\n    const link = e.link || e.url || e.guid || '';\n    if (!title || !link) continue;\n    if (!FIT.test(title + ' ' + (e.description || e.summary || e.contentSnippet || ''))) continue;\n    if ((seen[src] || 0) >= 6) continue;\n    seen[src] = (seen[src] || 0) + 1;\n    out.push({ json: {\n      source: src,\n      title: String(title).trim(),\n      url: String(link).trim(),\n      summary: String(e.description || e.summary || e.contentSnippet || '').replace(/<[^>]+>/g, '').trim().slice(0, 400),\n      published: e.pubDate || e.isoDate || e.published || ''\n    } });\n  }\n}\nreturn out;"
+      },
+      "position": [
+        680,
+        120
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+    {
+      "id": "read-briefed-log",
+      "name": "Read Briefed Log",
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "read",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Briefed Log"
+      },
+      "position": [
+        900,
+        120
+      ],
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2
+    },
+    {
+      "id": "dedupe-new-items",
+      "name": "Dedupe New Items",
+      "parameters": {
+        "jsCode": "// Drop any item whose URL is already in the Briefed Log sheet.\n// Reads the parsed items from the earlier node, not from this node's input.\nconst parsed = $('Parse & Filter Items').all().map(i => i.json);\nconst briefed = new Set($input.all().map(i => String(i.json.URL || i.json.url || '').trim().toLowerCase()));\nconst fresh = parsed.filter(r => !briefed.has(String(r.url || '').trim().toLowerCase()));\nreturn fresh.map(r => ({ json: r }));"
+      },
+      "position": [
+        1120,
+        120
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+    {
+      "id": "aggregate-research",
+      "name": "Aggregate Research",
+      "parameters": {
+        "jsCode": "// Bundle the fresh items into one research pack for the Writer agent.\n// Cap at 15 items so the prompt stays focused. Every item keeps its source URL.\nconst items = $input.all().map(i => i.json).slice(0, 15);\nconst lines = items.map((it, idx) =>\n  (idx + 1) + '. [' + it.source + '] ' + it.title + ' \u2014 ' + it.url +\n  (it.summary ? ' | ' + it.summary : '')\n).join('\\n');\nreturn [{ json: {\n  briefDate: new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', year: 'numeric', month: 'long', day: 'numeric' }),\n  itemCount: items.length,\n  items,\n  researchText: lines\n} }];"
+      },
+      "position": [
+        1340,
+        120
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+    {
+      "id": "writer-agent",
+      "name": "Writer Agent",
+      "parameters": {
+        "options": {
+          "systemMessage": "You are Siva's morning-brief writer. Siva is Sivasai Boggu, BTech Computer Science at IIIT Kottayam (2023-2027), CGPA 7.73, Software Developer Intern at Whispry (MERN, Rs 20,000/month). He builds AI agents with LangGraph/LangChain, RAG and FastAPI (projects: HireMind AI, SecureFlow, AuditMind, AI SDR Agent, Voice Receptionist). He is looking for PAID AI agent / AI engineer / software developer intern roles only. NEVER invent news, facts, people, job leads or claims. Use ONLY the research items given to you. Every brief item must carry its source URL from the research pack \u2014 if an item has no source URL, leave it out."
+        },
+        "promptType": "define",
+        "text": "Write Siva's morning brief from this research pack:\n\n{{ $json.researchText }}\n\nReply with ONLY this JSON, no other text:\n{\"topStories\": [{\"title\": \"...\", \"whyItMatters\": \"one line\", \"url\": \"...\"}], \"jobLeads\": [{\"title\": \"...\", \"company\": \"...\", \"why\": \"one line\", \"url\": \"...\"}], \"learnToday\": {\"topic\": \"...\", \"why\": \"one line\", \"url\": \"...\"}}\n\nRules: exactly 5 top stories (fewer only if fewer than 5 items were supplied); 2-3 job leads, ONLY from items that are real hiring/funding signals in the pack \u2014 if the pack has no real job lead, use an empty array, never invent one; one 'learn today' topic from the pack. Every URL must be copied exactly from the research pack."
+      },
+      "position": [
+        1560,
+        120
+      ],
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "notes": "Agent 1 of 3 \u2014 the Writer. Turns the researcher's items into the draft brief. Never invents items."
+    },
+    {
+      "id": "writer-gemini",
+      "name": "Writer Gemini Model",
+      "parameters": {
+        "modelName": "models/gemini-2.0-flash",
+        "options": {}
+      },
+      "position": [
+        1560,
+        320
+      ],
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "notes": "Free-tier Gemini 2.0 Flash. Connect your Google Gemini API credential here."
+    },
+    {
+      "id": "parse-writer-draft",
+      "name": "Parse Writer Draft",
+      "parameters": {
+        "jsCode": "// Extract the Writer agent's JSON draft. If it is not valid JSON, keep the\n// research pack attached and mark the draft empty so the Reviewer rejects it.\nconst raw = $input.first().json.output || $input.first().json.text || '';\nlet draft = {};\ntry { draft = JSON.parse(raw); } catch (e) {\n  const m = String(raw).match(/\\{[\\s\\S]*\\}/);\n  try { draft = m ? JSON.parse(m[0]) : {}; } catch (e2) { draft = {}; }\n}\nconst pack = $('Aggregate Research').first().json;\nreturn [{ json: { ...pack, draft, revisionCount: 0 } }];"
+      },
+      "position": [
+        1780,
+        120
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+    {
+      "id": "reviewer-agent",
+      "name": "Reviewer Agent",
+      "parameters": {
+        "options": {
+          "systemMessage": "You are Siva's morning-brief reviewer \u2014 a sceptical fact-checker. You check a draft brief against the original research items. Your job is to catch invented or unverified claims. NEVER invent news, facts or URLs yourself, and never approve an item you cannot trace to a research item."
+        },
+        "promptType": "define",
+        "text": "Review this draft brief against the research pack.\n\nRESEARCH PACK (the only trusted sources):\n{{ $json.researchText }}\n\nDRAFT:\n{{ JSON.stringify($json.draft) }}\n\nReply with ONLY this JSON, no other text:\n{\"approved\": true/false, \"needsRevision\": true/false, \"issues\": [\"...\"], \"cleanedDraft\": {same shape as the draft, with unverified or invented items REMOVED, URLs corrected to the research pack, and nothing added}}\n\nRules: drop any story, job lead or learn-topic whose URL is not in the research pack or whose claim is not supported by it. Set needsRevision=true (and approved=false) only if removing bad items leaves fewer than 3 top stories or an empty job-leads section that should have had one \u2014 otherwise approve the cleaned draft. Never add new items."
+      },
+      "position": [
+        2000,
+        120
+      ],
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "notes": "Agent 2 of 3 \u2014 the Reviewer. Fact-checks the draft against the source items. Drops anything unverified."
+    },
+    {
+      "id": "reviewer-gemini",
+      "name": "Reviewer Gemini Model",
+      "parameters": {
+        "modelName": "models/gemini-2.0-flash",
+        "options": {}
+      },
+      "position": [
+        2000,
+        320
+      ],
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "notes": "Free-tier Gemini 2.0 Flash. Separate model node so the Reviewer is an independent agent."
+    },
+    {
+      "id": "parse-review",
+      "name": "Parse Review",
+      "parameters": {
+        "jsCode": "// Extract the Reviewer agent's JSON. Default to NOT approved if unparsable \u2014\n// an unreviewed draft must never be sent.\nconst raw = $input.first().json.output || $input.first().json.text || '';\nlet review = {};\ntry { review = JSON.parse(raw); } catch (e) {\n  const m = String(raw).match(/\\{[\\s\\S]*\\}/);\n  try { review = m ? JSON.parse(m[0]) : {}; } catch (e2) { review = {}; }\n}\nconst prev = $('Parse Writer Draft').first().json;\nreturn [{ json: {\n  ...prev,\n  approved: review.approved === true,\n  needsRevision: review.needsRevision === true,\n  issues: review.issues || [],\n  cleanedDraft: review.cleanedDraft || prev.draft\n} }];"
+      },
+      "position": [
+        2220,
+        120
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+    {
+      "id": "needs-revision",
+      "name": "Needs Revision?",
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "needs-revision-check",
+              "leftValue": "={{ $json.needsRevision === true && ($json.revisionCount || 0) < 1 }}",
+              "operator": {
+                "name": "filter.operator.boolean.true",
+                "operation": "true",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      },
+      "position": [
+        2440,
+        120
+      ],
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "notes": "TRUE only when the Reviewer asked for a revision AND no revision has been done yet. Max 1 revision \u2014 after that the reviewed version goes out."
+    },
+    {
+      "id": "revision-writer-agent",
+      "name": "Writer Agent \u2014 Revision",
+      "parameters": {
+        "options": {
+          "systemMessage": "You are Siva's morning-brief writer. Siva is Sivasai Boggu, BTech Computer Science at IIIT Kottayam (2023-2027), CGPA 7.73, Software Developer Intern at Whispry (MERN, Rs 20,000/month). He builds AI agents with LangGraph/LangChain, RAG and FastAPI (projects: HireMind AI, SecureFlow, AuditMind, AI SDR Agent, Voice Receptionist). He is looking for PAID AI agent / AI engineer / software developer intern roles only. NEVER invent news, facts, people, job leads or claims. Use ONLY the research items given to you. Every brief item must carry its source URL from the research pack \u2014 if an item has no source URL, leave it out. You are revising a draft that the Reviewer rejected. Fix ONLY the issues the Reviewer listed."
+        },
+        "promptType": "define",
+        "text": "Revise this draft brief using the Reviewer's issues. Do not add new stories or job leads.\n\nRESEARCH PACK (the only trusted sources):\n{{ $json.researchText }}\n\nDRAFT:\n{{ JSON.stringify($json.cleanedDraft) }}\n\nREVIEWER ISSUES:\n{{ $json.issues.join('\\n') }}\n\nReply with ONLY the corrected brief JSON in the same shape as the draft ({topStories, jobLeads, learnToday}), every URL copied exactly from the research pack."
+      },
+      "position": [
+        2660,
+        40
+      ],
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "notes": "Agent 3 of 3 \u2014 the Writer, second pass. Runs at most once per brief."
+    },
+    {
+      "id": "revision-gemini",
+      "name": "Revision Gemini Model",
+      "parameters": {
+        "modelName": "models/gemini-2.0-flash",
+        "options": {}
+      },
+      "position": [
+        2660,
+        240
+      ],
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "notes": "Free-tier Gemini 2.0 Flash for the revision pass."
+    },
+    {
+      "id": "parse-revised-draft",
+      "name": "Parse Revised Draft",
+      "parameters": {
+        "jsCode": "// Extract the revision's JSON. Mark revisionCount=1 so the loop cannot run again.\nconst raw = $input.first().json.output || $input.first().json.text || '';\nlet draft = {};\ntry { draft = JSON.parse(raw); } catch (e) {\n  const m = String(raw).match(/\\{[\\s\\S]*\\}/);\n  try { draft = m ? JSON.parse(m[0]) : {}; } catch (e2) { draft = {}; }\n}\nconst prev = $('Parse Review').first().json;\nreturn [{ json: { ...prev, draft, cleanedDraft: draft, revisionCount: 1, approved: true } }];"
+      },
+      "position": [
+        2880,
+        40
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+    {
+      "id": "final-source-check",
+      "name": "Final Source Check",
+      "parameters": {
+        "jsCode": "// Mechanical check, no AI: every brief item's URL must appear in the fetched\n// research items. Drop anything that does not. The brief that goes out is the\n// reviewer-approved version (or the once-revised version) minus unverifiable items.\nconst prev = $input.first().json;\nconst srcUrls = new Set((prev.items || []).map(i => String(i.url || '').trim().toLowerCase()));\nconst draft = prev.cleanedDraft || prev.draft || {};\nconst keep = (arr) => (arr || []).filter(it => it && it.url && srcUrls.has(String(it.url).trim().toLowerCase()));\nconst brief = {\n  topStories: keep(draft.topStories),\n  jobLeads: keep(draft.jobLeads),\n  learnToday: (draft.learnToday && draft.learnToday.url && srcUrls.has(String(draft.learnToday.url).trim().toLowerCase())) ? draft.learnToday : null\n};\nreturn [{ json: { ...prev, brief, verifiedCount: brief.topStories.length } }];"
+      },
+      "position": [
+        3100,
+        120
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "notes": "No AI here \u2014 a mechanical check that every URL in the final brief exists in the fetched research items."
+    },
+    {
+      "id": "has-verified-items",
+      "name": "Has Verified Items?",
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "has-items-check",
+              "leftValue": "={{ ($json.verifiedCount || 0) >= 1 }}",
+              "operator": {
+                "name": "filter.operator.boolean.true",
+                "operation": "true",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      },
+      "position": [
+        3320,
+        120
+      ],
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "notes": "TRUE when at least one verified story survived. FALSE = nothing sendable today; the run logs a skip instead of sending an empty or invented brief."
+    },
+    {
+      "id": "format-brief-email",
+      "name": "Format Brief Email",
+      "parameters": {
+        "jsCode": "// Render the approved brief as a plain-text email. Only verified items are here.\nconst b = $json.brief || {};\nconst d = $json.briefDate || '';\nconst storyLines = (b.topStories || []).map((s, i) =>\n  (i + 1) + '. ' + s.title + '\\n   Why it matters: ' + (s.whyItMatters || '') + '\\n   ' + s.url\n).join('\\n\\n');\nconst leadLines = (b.jobLeads || []).length\n  ? (b.jobLeads || []).map(l => '- ' + l.title + ' at ' + (l.company || '') + ' \u2014 ' + (l.why || '') + '\\n  ' + l.url).join('\\n')\n  : 'No fresh job leads in today\\'s sources.';\nconst learn = b.learnToday\n  ? b.learnToday.topic + ' \u2014 ' + (b.learnToday.why || '') + '\\n' + b.learnToday.url\n  : '\u2014';\nconst body = 'Good morning, Siva \u2014 your AI brief for ' + d + '\\n\\n' +\n  'TOP 5 STORIES\\n' + storyLines + '\\n\\n' +\n  'JOB LEADS\\n' + leadLines + '\\n\\n' +\n  'ONE THING TO LEARN TODAY\\n' + learn + '\\n\\n' +\n  '\u2014\\nResearched, written and reviewed by your multi-agent brief workflow. ' +\n  'Every item links to its source.';\nreturn [{ json: { ...$input.first().json, emailBody: body } }];"
+      },
+      "position": [
+        3540,
+        40
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+    {
+      "id": "send-brief",
+      "name": "Send Brief",
+      "parameters": {
+        "emailType": "text",
+        "message": "={{ $json.emailBody }}",
+        "operation": "send",
+        "options": {
+          "appendAttribution": false
+        },
+        "resource": "message",
+        "sendTo": "sivasaiboggu@gmail.com",
+        "subject": "=Your AI morning brief \u2014 {{ $json.briefDate }}"
+      },
+      "position": [
+        3760,
+        40
+      ],
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "notes": "Only the reviewer-approved (or once-revised and source-checked) brief reaches this node."
+    },
+    {
+      "id": "log-brief",
+      "name": "Log Brief",
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Brief Date"
+          ],
+          "schema": [],
+          "value": {
+            "Brief Date": "={{ $json.briefDate }}",
+            "Sent At": "={{ $now.toISO() }}",
+            "Stories": "={{ ($json.brief.topStories || []).length }}",
+            "Title": "={{ ($json.brief.topStories || []).map(s => s.title).join(' | ') }}",
+            "URL": "={{ ($json.brief.topStories || []).map(s => s.url).join(' | ') }}"
+          }
+        },
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Briefed Log"
+      },
+      "position": [
+        3980,
+        40
+      ],
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2
+    },
+    {
+      "id": "log-skipped",
+      "name": "Log Skipped Brief",
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Brief Date"
+          ],
+          "schema": [],
+          "value": {
+            "Brief Date": "={{ $json.briefDate }}",
+            "Reason": "No verified items survived the Reviewer + source check \u2014 nothing sent",
+            "Skipped At": "={{ $now.toISO() }}"
+          }
+        },
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Skipped"
+      },
+      "position": [
+        3540,
+        260
+      ],
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2
+    },
+    {
+      "id": "error-trigger",
+      "name": "Error Trigger",
+      "parameters": {},
+      "position": [
+        0,
+        980
+      ],
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "notes": "Catches failures from any node in this workflow."
+    },
+    {
+      "id": "log-error",
+      "name": "Log Error",
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "At"
+          ],
+          "schema": [],
+          "value": {
+            "At": "={{ $now.toISO() }}",
+            "Error": "={{ $json.error?.message || JSON.stringify($json.error || $json) }}",
+            "Node": "={{ $json.execution?.lastNodeExecuted || $json.node || 'unknown' }}",
+            "Workflow": "Multi-agent Daily Brief \u2014 Siva"
+          }
+        },
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Errors"
+      },
+      "position": [
+        240,
+        980
+      ],
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2
+    },
+    {
+      "id": "notify-siva-error",
+      "name": "Notify Siva (Error)",
+      "parameters": {
+        "emailType": "text",
+        "message": "=The Multi-agent Daily Brief hit an error and logged it to the Errors sheet.\n\nNode: {{ $json.execution?.lastNodeExecuted || 'unknown' }}\nError: {{ $json.error?.message || 'see Errors sheet' }}\n\nNo brief was sent for this run \u2014 check the sheet and re-run with the Manual Trigger.",
+        "operation": "send",
+        "options": {
+          "appendAttribution": false
+        },
+        "resource": "message",
+        "sendTo": "sivasaiboggu@gmail.com",
+        "subject": "=Daily brief error \u2014 {{ $json.execution?.lastNodeExecuted || 'workflow' }}"
+      },
+      "position": [
+        480,
+        980
+      ],
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1
+    },
+    {
+      "id": "sticky-setup",
+      "name": "Sticky Note \u2014 Setup",
+      "parameters": {
+        "color": 4,
+        "content": "## Multi-agent Daily Brief \u2014 setup\n1. Create the Google Sheet (tabs: Briefed Log, Skipped, Errors) \u2014 see SETUP.md.\n2. Connect credentials: Gmail OAuth2, Google Sheets OAuth2, Google Gemini API.\n3. Paste your Sheet ID where marked YOUR_GOOGLE_SHEET_ID.\n4. Click Execute with Manual Trigger first. Only then activate the schedule.",
+        "height": 260,
+        "width": 420
+      },
+      "position": [
+        0,
+        -320
+      ],
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1
+    },
+    {
+      "id": "sticky-agents",
+      "name": "Sticky Note \u2014 Agents",
+      "parameters": {
+        "color": 5,
+        "content": "## Three agents, one brief\n- RESEARCHER: RSS feeds \u2192 filter \u2192 dedupe (no AI).\n- WRITER: Gemini agent drafts the brief from the research pack only.\n- REVIEWER: separate Gemini agent fact-checks the draft, drops unverified items, sends it back once at most.\n- Final Source Check is mechanical (no AI): every URL must exist in the fetched items.\nHard rules: no invented news, no fake job leads, no Internshala, never send an unreviewed draft.",
+        "height": 260,
+        "width": 420
+      },
+      "position": [
+        480,
+        -320
+      ],
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## Credentials \u2014 read before importing\nMulti-agent Daily Brief \u2014 credentials: none are set in this file. On import n8n shows 'No credential set' \u2014 connect your own Gmail OAuth2, Google Sheets OAuth2 and Google Gemini API. (The original file carried placeholder credential references that made n8n refuse to save on import; they were removed.)\nGoogle Sheets ID: replace YOUR_GOOGLE_SHEET_ID in the Sheets nodes.",
+        "height": 220,
+        "width": 420,
+        "color": 4
+      },
+      "id": "3d2582b9-2d44-4215-85df-42d2fb842b25",
+      "name": "Sticky Note \u2014 Credentials",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -580
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Feed Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Feed Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Feed Sources": {
+      "main": [
+        [
+          {
+            "node": "Fetch Feeds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Feeds": {
+      "main": [
+        [
+          {
+            "node": "Parse & Filter Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Filter Items": {
+      "main": [
+        [
+          {
+            "node": "Read Briefed Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Briefed Log": {
+      "main": [
+        [
+          {
+            "node": "Dedupe New Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedupe New Items": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Research",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Research": {
+      "main": [
+        [
+          {
+            "node": "Writer Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Writer Gemini Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Writer Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Writer Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse Writer Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Writer Draft": {
+      "main": [
+        [
+          {
+            "node": "Reviewer Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reviewer Gemini Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Reviewer Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reviewer Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Review": {
+      "main": [
+        [
+          {
+            "node": "Needs Revision?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Revision?": {
+      "main": [
+        [
+          {
+            "node": "Writer Agent \u2014 Revision",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Final Source Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Revision Gemini Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Writer Agent \u2014 Revision",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Writer Agent \u2014 Revision": {
+      "main": [
+        [
+          {
+            "node": "Parse Revised Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Revised Draft": {
+      "main": [
+        [
+          {
+            "node": "Final Source Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Final Source Check": {
+      "main": [
+        [
+          {
+            "node": "Has Verified Items?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Verified Items?": {
+      "main": [
+        [
+          {
+            "node": "Format Brief Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Skipped Brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Brief Email": {
+      "main": [
+        [
+          {
+            "node": "Send Brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Brief": {
+      "main": [
+        [
+          {
+            "node": "Log Brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Log Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Error": {
+      "main": [
+        [
+          {
+            "node": "Notify Siva (Error)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

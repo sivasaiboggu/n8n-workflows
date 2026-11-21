@@ -1,0 +1,690 @@
+{
+  "name": "AI Customer Support Triage \u2014 Siva",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "97eae481-bd90-553c-ab65-5a584a463281",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "support-triage",
+        "responseMode": "lastNode",
+        "options": {
+          "responseData": "firstEntryJson"
+        }
+      },
+      "id": "e325949f-349a-555a-b5b5-0f4219b494b3",
+      "name": "Webhook \u2014 New Support Message",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalise inbound form/WhatsApp message. Never invent customer data.\nconst b = $input.first().json.body || $input.first().json;\nreturn [{json:{channel: b.channel || 'form', sender: b.sender || b.from || 'unknown', message: b.message || b.text || '', received_at: new Date().toISOString()}}];"
+      },
+      "id": "0aa7ab68-099d-54ff-9329-4feeb0fe0745",
+      "name": "Parse & Normalise Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// MEMORY LAYER (placeholder \u2014 no live vector DB connected).\n// In production this node queries a vector store over Siva's support docs\n// and returns the top-k passages. Until connected it passes the message\n// through with an empty context and flags retrieval as 'not_connected',\n// so the agent must say it does not know rather than invent an answer.\n// What would be stored: {message, matched_doc_ids, answer, confidence, resolved}.\nconst j = $input.first().json;\nreturn [{json:{...j, docs_context: '', retrieval: 'not_connected'}}];"
+      },
+      "id": "cb3f28ea-6ddf-59b0-b0d5-222265f299e8",
+      "name": "Retrieve Docs Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "model": "gemini-2.0-flash",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "3bf31c47-a125-5473-8574-74da96a68e3b",
+      "name": "Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        480,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Triage this support message. Docs context (may be empty \u2014 if empty, do NOT invent a docs answer): {{ $json.docs_context }}\nMessage from {{ $json.sender }} via {{ $json.channel }}: {{ $json.message }}\nReturn JSON only: {\"intent\": \"...\", \"confidence\": 0.0-1.0, \"suggested_reply\": \"...\", \"needs_human\": true/false, \"summary\": \"...\"}. Set confidence below 0.8 and needs_human=true unless the docs context directly answers the question.",
+        "options": {
+          "systemMessage": "You are helping Siva (Sivasai Boggu). Never invent facts, emails, prices or sources. If you do not know, say so."
+        }
+      },
+      "id": "b3e90d6d-6450-5121-900e-44a3e67816a8",
+      "name": "Support Triage Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        480,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "confidence-check",
+              "leftValue": "={{ ($json.output?.confidence ?? 0) >= 0.8 }}",
+              "operator": {
+                "name": "filter.operator.boolean.true",
+                "operation": "true",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      },
+      "id": "18cf5070-4a99-5542-97c9-f681e455b727",
+      "name": "Confidence Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        720,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "sender",
+              "value": "={{ $('Support Triage Agent').first().json.sender }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "reply",
+              "value": "={{ $json.output?.suggested_reply }}",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "summary",
+              "value": "={{ $json.output?.summary }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "bc20472f-3e66-5722-a6f1-d77751195ae9",
+      "name": "Draft Customer Reply",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        960,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Approval needed: customer support reply (see Draft Customer Reply \u2014 do NOT send until approved). Reply APPROVED in the Approval sheet (tab Approvals, key=latest, value=approved) or edit the row. Workflow waits 60 min, then checks the sheet."
+      },
+      "id": "2235345f-c007-5414-8837-959bb4df0c89",
+      "name": "Send Approval Request",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 60,
+        "unit": "minutes"
+      },
+      "id": "112d1ff8-a69e-5a71-bff6-ccbe92c4d99b",
+      "name": "Wait for Approval",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "lookup",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Approvals",
+          "mode": "list",
+          "cachedResultName": "Approvals"
+        },
+        "lookupColumn": "key",
+        "lookupValue": "latest"
+      },
+      "id": "107ed0b1-1779-5002-8f04-a83fdee3a3ea",
+      "name": "Read Approval Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "approval-approved",
+              "leftValue": "={{ ($json.value || '').toLowerCase() === 'approved' }}",
+              "operator": {
+                "name": "filter.operator.boolean.true",
+                "operation": "true",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      },
+      "id": "c29f7e4a-6531-5e19-8060-ab02f031a868",
+      "name": "Approval Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1920,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $json.sender }}",
+        "subject": "=Re: your support message",
+        "emailType": "text",
+        "message": "=Hi \u2014 {{ $json.reply }}\n\n\u2014 Siva's support (reviewed by a human before sending)"
+      },
+      "id": "248f5c3f-ba11-55b4-abe2-07323b87e6dd",
+      "name": "Send Customer Reply",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2160,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.linear.app/graphql",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "= {\"query\": \"mutation { issueCreate(input: {title: \\\"Support: {{ $json.output?.summary }}\\\", description: \\\"From {{ $json.sender }} via {{ $json.channel }}: {{ $json.message }} | Suggested reply: {{ $json.output?.suggested_reply }}\\\"}) { issue { id } } }\""
+      },
+      "id": "78d7deec-4808-58a3-ae92-f44a38e32291",
+      "name": "Create Ticket",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=\ud83c\udfab Low-confidence support message ticketed in Linear/Jira. Sender: {{ $json.sender }}. Summary: {{ $json.output?.summary }}. Suggested reply attached to the ticket \u2014 a human picks it up."
+      },
+      "id": "75eef765-58ec-59aa-9796-79b84291a166",
+      "name": "Notify Support Team",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1200,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append"
+      },
+      "id": "36582e59-3b9f-510d-bf60-6bb561c84739",
+      "name": "Merge Outcomes",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        2400,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Execution Log",
+          "mode": "list",
+          "cachedResultName": "Execution Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now }}",
+            "workflow": "={{ $workflow.name }}",
+            "status": "success",
+            "summary": "={{ $json.summary || $json.reply || 'ticket created' }}"
+          },
+          "matchingColumns": [
+            "timestamp",
+            "workflow",
+            "status",
+            "summary"
+          ],
+          "schema": []
+        }
+      },
+      "id": "301f1592-91b6-5ea8-85ad-f6f8ca8bbd29",
+      "name": "Log Execution",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        2640,
+        120
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "8917e328-d025-51ad-a9f5-95872bc30326",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Error Log",
+          "mode": "list",
+          "cachedResultName": "Error Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now }}",
+            "workflow": "={{ $json.workflow?.name }}",
+            "error": "={{ $json.error?.message }}",
+            "node": "={{ $json.node?.name }}"
+          },
+          "matchingColumns": [
+            "timestamp",
+            "workflow",
+            "error",
+            "node"
+          ],
+          "schema": []
+        }
+      },
+      "id": "536207ad-b55b-5e28-8346-a993a7d56c3d",
+      "name": "Log Error to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=\u26a0\ufe0f n8n error in {{ $json.workflow?.name }}: {{ $json.error?.message }}. Logged to sheet."
+      },
+      "id": "f71beb49-7acc-5e51-99e8-f823e2e7b478",
+      "name": "Notify Siva \u2014 Error",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "content": "AI Customer Support Triage \u2014 Siva\nWebhook/form message \u2192 RAG context (placeholder) \u2192 Gemini triages. Confident (\u22650.8) \u2192 draft reply \u2192 HUMAN APPROVAL (Telegram + Approval sheet) \u2192 Gmail reply. Not confident \u2192 ticket in Linear/Jira + Telegram alert. Nothing customer-facing is sent without approval.",
+        "height": 180,
+        "width": 420
+      },
+      "id": "f65707a1-0df2-55e0-b033-50afc60af4cd",
+      "name": "Sticky Note \u2014 Flow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "content": "MEMORY: no live vector DB is connected. 'Retrieve Docs Context' is a placeholder that returns empty context until a vector store is wired in. Store per run: message, matched doc ids, answer, confidence, resolved? \u2014 in the Support Log sheet tab. Never let the agent answer from invented docs.",
+        "height": 180,
+        "width": 420
+      },
+      "id": "b431823c-227f-5dde-a61c-aad840e66eea",
+      "name": "Sticky Note \u2014 Memory Layer",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        480,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "content": "CREDENTIALS NEEDED (pick/create on import \u2014 no credential is set in this file):\n\u2022 Gemini Chat Model \u2192 Google Gemini API\n\u2022 Send Customer Reply \u2192 Gmail account (sivasaiboggu@gmail.com)\n\u2022 Send Approval Request / Notify Support Team / Notify Siva \u2014 Error \u2192 Telegram account\n\u2022 Read Approval Sheet / Log Execution / Log Error to Sheet \u2192 Google Sheets account\n\u2022 Create Ticket \u2192 Linear API Token (HTTP Header Auth)\nSee SETUP.md \u00a72 for how to create each one.",
+        "height": 260,
+        "width": 420
+      },
+      "id": "8eaaa44e-5602-58c4-bc7e-5679c609f731",
+      "name": "Sticky Note \u2014 Credentials",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        960,
+        -320
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parse & Normalise Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook \u2014 New Support Message": {
+      "main": [
+        [
+          {
+            "node": "Parse & Normalise Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Normalise Message": {
+      "main": [
+        [
+          {
+            "node": "Retrieve Docs Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retrieve Docs Context": {
+      "main": [
+        [
+          {
+            "node": "Support Triage Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Support Triage Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Support Triage Agent": {
+      "main": [
+        [
+          {
+            "node": "Confidence Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confidence Check": {
+      "main": [
+        [
+          {
+            "node": "Draft Customer Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft Customer Reply": {
+      "main": [
+        [
+          {
+            "node": "Send Approval Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Approval Request": {
+      "main": [
+        [
+          {
+            "node": "Wait for Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Approval": {
+      "main": [
+        [
+          {
+            "node": "Read Approval Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Approval Sheet": {
+      "main": [
+        [
+          {
+            "node": "Approval Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval Approved?": {
+      "main": [
+        [
+          {
+            "node": "Send Customer Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Send Customer Reply": {
+      "main": [
+        [
+          {
+            "node": "Merge Outcomes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Ticket": {
+      "main": [
+        [
+          {
+            "node": "Notify Support Team",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Support Team": {
+      "main": [
+        [
+          {
+            "node": "Merge Outcomes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Outcomes": {
+      "main": [
+        [
+          {
+            "node": "Log Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Log Error to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Error to Sheet": {
+      "main": [
+        [
+          {
+            "node": "Notify Siva \u2014 Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

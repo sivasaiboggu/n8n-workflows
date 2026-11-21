@@ -1,0 +1,627 @@
+{
+ "name": "Dream-Team Multi-Agent Pipeline — Siva",
+ "nodes": [
+  {
+   "parameters": {
+    "content": "CREDENTIALS NEEDED (pick/create on import — no credential is set in this file):\nn8n shows \"No credential set\" on each node below; click the node and pick/create the credential. No key or secret is stored in this file.\n- Google Gemini(PaLM) Api (googlePalmApi) — Gemini Chat Model\n- Google Docs account (googleDocsOAuth2) — Save Draft to Google Docs\n- Google Sheets account (googleSheetsOAuth2) — Save Draft Record to Sheet, Check Approval Sheet, Log Draft Only — Not Published, Log Execution, Log Error to Sheet\n- Telegram account (telegramApi) — Send Approval Request via Telegram, Notify — Approved to Publish (Manual), Notify Error via Telegram",
+    "height": 216,
+    "width": 560,
+    "color": 4
+   },
+   "id": "2cfbf903-9d48-4618-8c51-f18f6747ee1d",
+   "name": "Sticky Note — Credentials",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    0,
+    -496
+   ]
+  },
+  {
+   "parameters": {
+    "content": "Dream-Team Multi-Agent Pipeline — Siva\nTopic in → four Gemini agents in sequence: Researcher → Writer → Fact-checker → Editor. Final piece saved as a DRAFT to Google Docs — never auto-published.\nHuman approval before publishing. Memory: past topics + editor notes are kept in the Pipeline Memory sheet so later runs learn from them.",
+    "height": 150,
+    "width": 620,
+    "color": 4
+   },
+   "id": "e2528ffa-363d-4552-991b-1a4f44d0f735",
+   "name": "About This Workflow",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    0,
+    -260
+   ]
+  },
+  {
+   "parameters": {
+    "content": "Memory: the Pipeline Memory sheet stores topic, sources found, fact-check flags and editor notes from each run. The Researcher prompt is told to read that sheet's rows first (via the Set Topic node output) so repeats and past corrections are avoided. No Postgres/vector DB connection is claimed — add one later if you want it.",
+    "height": 150,
+    "width": 620,
+    "color": 4
+   },
+   "id": "bc712635-4bae-4955-b9a2-9b31451818ea",
+   "name": "Memory Layer (no live DB invented)",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    0,
+    500
+   ]
+  },
+  {
+   "parameters": {},
+   "id": "15e87838-659c-4d96-b997-27f4fc84a9be",
+   "name": "Manual Trigger",
+   "type": "n8n-nodes-base.manualTrigger",
+   "typeVersion": 1,
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "httpMethod": "POST",
+    "path": "YOUR_DREAMTEAM_WEBHOOK_PATH",
+    "responseMode": "onReceived",
+    "options": {}
+   },
+   "id": "13e5ca30-94b3-494e-9d54-a09cff419b94",
+   "name": "Receive Topic Webhook",
+   "type": "n8n-nodes-base.webhook",
+   "typeVersion": 2,
+   "position": [
+    0,
+    200
+   ]
+  },
+  {
+   "parameters": {
+    "assignments": {
+     "assignments": [
+      {
+       "id": "4f143a7c-b0e4-434b-8460-6ccc70d370e1",
+       "name": "topic",
+       "type": "string",
+       "value": "= {{ $json.topic || $json.body?.topic || 'YOUR_TOPIC' }}"
+      },
+      {
+       "id": "4dacfbf6-6943-40ff-b3e7-b323ca1e0625",
+       "name": "audience",
+       "type": "string",
+       "value": "= {{ $json.audience || 'general readers' }}"
+      },
+      {
+       "id": "6eaa94c9-8259-4822-bf38-43e1ea394d18",
+       "name": "memory_hint",
+       "type": "string",
+       "value": "Check the Pipeline Memory sheet for this topic before researching — avoid repeating past topics and past fact-check flags."
+      }
+     ]
+    },
+    "options": {}
+   },
+   "id": "d4a168d2-1cd2-4e39-b138-7273ab2b03f6",
+   "name": "Set Topic",
+   "type": "n8n-nodes-base.set",
+   "typeVersion": 3.4,
+   "position": [
+    240,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "promptType": "text",
+    "text": "=You are the Researcher. Topic: {{ $json.topic }}. Audience: {{ $json.audience }}. Memory hint: {{ $json.memory_hint }}. Find the key facts, figures, dates and sources for this topic. List each fact with its source. Be honest about what you could not verify — mark it UNVERIFIED. Output structured research notes only.",
+    "options": {}
+   },
+   "id": "6bda7a98-fbc5-4353-817e-e87f3e03107d",
+   "name": "Researcher",
+   "type": "@n8n/n8n-nodes-langchain.agent",
+   "typeVersion": 1.7,
+   "position": [
+    480,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "promptType": "text",
+    "text": "=You are the Writer. Turn the research notes in the input into a clear, engaging draft article for the stated audience. Keep the structure: hook, key points, examples, conclusion. Do NOT invent facts, quotes or statistics — use only what the Researcher provided, and keep UNVERIFIED items out of the draft.",
+    "options": {}
+   },
+   "id": "e39852cc-5d8e-45a9-8e4b-10cd8d80c00b",
+   "name": "Writer",
+   "type": "@n8n/n8n-nodes-langchain.agent",
+   "typeVersion": 1.7,
+   "position": [
+    720,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "promptType": "text",
+    "text": "=You are the Fact-checker. Check every factual claim in the draft in the input against the research notes. Flag anything unsupported, contradictory or UNVERIFIED, and correct what you can from the research notes. Output the corrected draft plus a short list of flags. Never invent a source to justify a claim.",
+    "options": {}
+   },
+   "id": "e5615412-17f5-4af9-b571-602bea994eac",
+   "name": "Fact-checker",
+   "type": "@n8n/n8n-nodes-langchain.agent",
+   "typeVersion": 1.7,
+   "position": [
+    960,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "promptType": "text",
+    "text": "=You are the Editor. Polish the fact-checked draft in the input for clarity, flow and tone. Fix grammar, tighten sentences, keep all facts and flags intact. Output the final draft text only, followed by a one-line summary.",
+    "options": {}
+   },
+   "id": "08f7d758-a017-4654-8231-178bf5c22a0a",
+   "name": "Editor",
+   "type": "@n8n/n8n-nodes-langchain.agent",
+   "typeVersion": 1.7,
+   "position": [
+    1200,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "model": "gemini-2.0-flash",
+    "options": {
+     "temperature": 0.3
+    }
+   },
+   "id": "bd9b4181-64bf-48d2-8253-ab904a3bf2b1",
+   "name": "Gemini Chat Model",
+   "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+   "typeVersion": 1,
+   "position": [
+    720,
+    280
+   ]
+  },
+  {
+   "parameters": {
+    "resource": "document",
+    "operation": "create",
+    "title": "= DRAFT — {{ $json.topic }}",
+    "text": "= {{ $json.output || '' }}"
+   },
+   "id": "7727fd3b-0d0b-4cdb-8ddb-b54c66842927",
+   "name": "Save Draft to Google Docs",
+   "type": "n8n-nodes-base.googleDocs",
+   "typeVersion": 2,
+   "position": [
+    1440,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Pipeline Drafts",
+    "operation": "append",
+    "columns": {
+     "mappingMode": "manual",
+     "value": {
+      "timestamp": "={{ $now }}",
+      "topic": "={{ $json.topic || '' }}",
+      "status": "draft — awaiting approval",
+      "doc": "saved to Google Docs (draft)"
+     }
+    }
+   },
+   "id": "20471e4c-33a9-41ca-b0d2-57378f7b3155",
+   "name": "Save Draft Record to Sheet",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    1680,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "chatId": "YOUR_TELEGRAM_CHAT_ID",
+    "text": "=✍️ Dream-Team draft ready: {{ $json.topic }}\n\nSaved as a DRAFT in Google Docs — NOT published. Write APPROVE in the Approval tab to allow publishing.",
+    "additionalFields": {
+     "appendAttribution": false
+    }
+   },
+   "id": "f8ad2ec4-61e6-48ef-8415-c4045a5ceb2e",
+   "name": "Send Approval Request via Telegram",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    1920,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Approval",
+    "operation": "read"
+   },
+   "id": "6de7a542-1f36-4469-b89d-de321ab9bd17",
+   "name": "Check Approval Sheet",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    2160,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose"
+     },
+     "conditions": [
+      {
+       "id": "dc4909fc-7b6f-4cc6-b088-4fd3b6312551",
+       "leftValue": "={{ $json.approval || '' }}",
+       "rightValue": "APPROVE",
+       "operator": {
+        "type": "string",
+        "operation": "equals"
+       }
+      }
+     ],
+     "combinator": "and"
+    }
+   },
+   "id": "fc25641a-4ad5-48b9-ad7e-31b8ca40651b",
+   "name": "Approved to Publish?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    2400,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "chatId": "YOUR_TELEGRAM_CHAT_ID",
+    "text": "=✅ Approved. Publish the draft from Google Docs yourself — this workflow never auto-publishes.",
+    "additionalFields": {
+     "appendAttribution": false
+    }
+   },
+   "id": "8f7a8568-1525-4d16-a15b-40e7646bea95",
+   "name": "Notify — Approved to Publish (Manual)",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    2640,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Execution Log",
+    "operation": "append",
+    "columns": {
+     "mappingMode": "manual",
+     "value": {
+      "timestamp": "={{ $now }}",
+      "workflow": "Dream-Team Multi-Agent Pipeline — Siva",
+      "status": "draft only — not published",
+      "summary": "Draft saved; publishing blocked pending approval."
+     }
+    }
+   },
+   "id": "3b8f3e08-796d-410f-8206-6c1181c6a1d1",
+   "name": "Log Draft Only — Not Published",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    2640,
+    200
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Execution Log",
+    "operation": "append",
+    "columns": {
+     "mappingMode": "manual",
+     "value": {
+      "timestamp": "={{ $now }}",
+      "workflow": "Dream-Team Multi-Agent Pipeline — Siva",
+      "status": "completed",
+      "summary": "={{ JSON.stringify($json).slice(0, 500) }}"
+     }
+    }
+   },
+   "id": "6d2da9c2-e672-4119-9b82-a0d70f309bf3",
+   "name": "Log Execution",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    2880,
+    0
+   ]
+  },
+  {
+   "parameters": {},
+   "id": "2b3dfbb6-66ff-4c05-9476-9ef4c3475885",
+   "name": "Error Trigger",
+   "type": "n8n-nodes-base.errorTrigger",
+   "typeVersion": 1,
+   "position": [
+    0,
+    420
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Error Log",
+    "operation": "append",
+    "columns": {
+     "mappingMode": "manual",
+     "value": {
+      "timestamp": "={{ $now }}",
+      "workflow": "={{ $json.workflow?.name || 'this workflow' }}",
+      "error": "={{ $json.error?.message || JSON.stringify($json) }}",
+      "node": "={{ $json.node || '' }}"
+     }
+    }
+   },
+   "id": "24803d49-3458-4cc4-a8c6-f81fb9ae8d37",
+   "name": "Log Error to Sheet",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    240,
+    420
+   ]
+  },
+  {
+   "parameters": {
+    "chatId": "YOUR_TELEGRAM_CHAT_ID",
+    "text": "=⚠️ Workflow error: {{ $json.error?.message || 'see Error Log sheet' }}. Check the Error Log tab in YOUR_GOOGLE_SHEET_ID.",
+    "additionalFields": {
+     "appendAttribution": false
+    }
+   },
+   "id": "ef42f095-252b-4394-b895-d02482f8d84a",
+   "name": "Notify Error via Telegram",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    480,
+    420
+   ]
+  }
+ ],
+ "connections": {
+  "Manual Trigger": {
+   "main": [
+    [
+     {
+      "node": "Set Topic",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Receive Topic Webhook": {
+   "main": [
+    [
+     {
+      "node": "Set Topic",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Set Topic": {
+   "main": [
+    [
+     {
+      "node": "Researcher",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Researcher": {
+   "main": [
+    [
+     {
+      "node": "Writer",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Writer": {
+   "main": [
+    [
+     {
+      "node": "Fact-checker",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Fact-checker": {
+   "main": [
+    [
+     {
+      "node": "Editor",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Gemini Chat Model": {
+   "ai_languageModel": [
+    [
+     {
+      "node": "Researcher",
+      "type": "ai_languageModel",
+      "index": 0
+     },
+     {
+      "node": "Writer",
+      "type": "ai_languageModel",
+      "index": 0
+     },
+     {
+      "node": "Fact-checker",
+      "type": "ai_languageModel",
+      "index": 0
+     },
+     {
+      "node": "Editor",
+      "type": "ai_languageModel",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Editor": {
+   "main": [
+    [
+     {
+      "node": "Save Draft to Google Docs",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Save Draft to Google Docs": {
+   "main": [
+    [
+     {
+      "node": "Save Draft Record to Sheet",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Save Draft Record to Sheet": {
+   "main": [
+    [
+     {
+      "node": "Send Approval Request via Telegram",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Send Approval Request via Telegram": {
+   "main": [
+    [
+     {
+      "node": "Check Approval Sheet",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Check Approval Sheet": {
+   "main": [
+    [
+     {
+      "node": "Approved to Publish?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Approved to Publish?": {
+   "main": [
+    [
+     {
+      "node": "Notify — Approved to Publish (Manual)",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Log Draft Only — Not Published",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Notify — Approved to Publish (Manual)": {
+   "main": [
+    [
+     {
+      "node": "Log Execution",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Log Draft Only — Not Published": {
+   "main": [
+    [
+     {
+      "node": "Log Execution",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Error Trigger": {
+   "main": [
+    [
+     {
+      "node": "Log Error to Sheet",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Log Error to Sheet": {
+   "main": [
+    [
+     {
+      "node": "Notify Error via Telegram",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "active": false,
+ "settings": {
+  "executionOrder": "v1"
+ },
+ "pinData": {}
+}

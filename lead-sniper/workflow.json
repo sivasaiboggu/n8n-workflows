@@ -1,0 +1,536 @@
+{
+  "name": "Lead Sniper \u2014 Siva",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "Lead Sniper \u2014 Siva\nLead in (webhook/manual) \u2192 enrich with company data \u2192 Gemini scores fit vs Siva's offering (AI SDR agent, LangGraph / LangChain / RAG) and writes a personalised first line from the lead's recent posts \u2192 adds to the cold-email sequence sheet as a DRAFT. Never sends email.",
+        "height": 120,
+        "width": 480
+      },
+      "id": "7a1d831c-3d84-4497-95ba-4717e458830d",
+      "name": "Sticky Note \u2014 Flow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "MEMORY LAYER (no live DB): the Lead Sequence sheet is the memory \u2014 one row per lead (company, score, first line, status). Gemini checks past rows so a lead already mailed is never re-added. Postgres/vector store can replace the sheet later; do not invent a live DB connection.",
+        "height": 120,
+        "width": 480
+      },
+      "id": "f0ccb915-b402-4ecb-8c4f-1f18743003fa",
+      "name": "Sticky Note \u2014 Memory Layer",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "CREDENTIALS NEEDED (pick/create on import \u2014 no credential is set in this file):\n- Apollo API key \u2014 Enrich Lead (Apollo-style)\n- Telegram API \u2014 Telegram Ping (Hot Lead), Notify on Error\n- Google Sheets (OAuth2) \u2014 Add Hot/Lead to Sequence Sheet, Log Error to Sheet, Log Execution\n- Google Gemini (PaLM) API \u2014 Gemini Chat Model",
+        "height": 120,
+        "width": 480
+      },
+      "id": "1fc6099a-3c81-48e4-bf19-5fa15ab85a20",
+      "name": "Sticky Note \u2014 Credentials",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-sniper",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "c94a6b0d-98e0-42d2-a76c-78539d0a9a95",
+      "name": "Webhook \u2014 Lead",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "77f3856a-ab96-4e0d-88af-25fea1b7c5d0",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "if (!$json.email && !$json.company) throw new Error('Lead needs at least an email or a company');\nreturn [{ json: { name: $json.name || '', email: $json.email || '', company: $json.company || '', linkedin_url: $json.linkedin_url || '', recent_posts: $json.recent_posts || '' } }];"
+      },
+      "id": "603c7f1e-c0f9-4ef1-929d-e5a62cf09f61",
+      "name": "Validate Lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.apollo.io/v1/people/match?email={{ $json.email }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "id": "1f3341a1-0ab3-4b19-b09e-14133f866fb6",
+      "name": "Enrich Lead (Apollo-style)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "model": "gemini-2.0-flash",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "0ec77c8e-c1b7-49d9-a99c-d4a6ab7b94f7",
+      "name": "Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        720,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Score this lead 0-100 for fit with Siva's offering: AI SDR agent built with LangGraph/LangChain/RAG, cold-mail automation, AI agent engineering. Lead: {{ $json }}. Write a personalised first line based ONLY on the lead's recent posts / company info in the input. Return JSON: {score, reason, first_line}. Never invent a post, role or company fact.",
+        "options": {
+          "systemMessage": "You score leads against Siva's AI SDR / LangGraph offering and write a personalised first line. Use only supplied lead data. Never invent posts, roles or facts."
+        }
+      },
+      "id": "c37cbfba-6873-467c-b05c-6442e4d4e19b",
+      "name": "Score Lead & Write First Line (Gemini Agent)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        720,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5dba43f7",
+              "name": "status",
+              "value": "DRAFT \u2014 needs human approval before any email is sent",
+              "type": "string"
+            },
+            {
+              "id": "08e632a4",
+              "name": "approved_to_send",
+              "value": "No",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7129b668-1158-4398-990d-fca45bb85d51",
+      "name": "Mark Draft \u2014 Needs Approval",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        960,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.score >= 80 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true
+      },
+      "id": "84b4494c-c144-423b-93b7-152487098e66",
+      "name": "Hot Lead? (score >= 80)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_LEAD_SEQUENCE_SHEET_ID",
+        "sheetName": "Sequence",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "name": "={{ $json.name }}",
+            "email": "={{ $json.email }}",
+            "company": "={{ $json.company }}",
+            "score": "={{ $json.score }}",
+            "first_line": "={{ $json.first_line }}",
+            "status": "DRAFT \u2014 needs approval"
+          }
+        }
+      },
+      "id": "8fa6bd8a-616d-4c39-9a91-9acc4e1d95d8",
+      "name": "Add Hot Lead to Sequence Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        1440,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Hot lead (score {{ $json.score }}): {{ $json.name }} \u2014 {{ $json.company }}\nFirst line: {{ $json.first_line }}\nAdded to the sequence sheet as a DRAFT. No email sent \u2014 approve it first.",
+        "additionalFields": {}
+      },
+      "id": "c4f9b14a-ae67-4fd7-98d5-3db65fdff5a8",
+      "name": "Telegram Ping \u2014 Hot Lead",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1680,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_LEAD_SEQUENCE_SHEET_ID",
+        "sheetName": "Sequence",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "name": "={{ $json.name }}",
+            "email": "={{ $json.email }}",
+            "company": "={{ $json.company }}",
+            "score": "={{ $json.score }}",
+            "first_line": "={{ $json.first_line }}",
+            "status": "DRAFT \u2014 needs approval"
+          }
+        }
+      },
+      "id": "e3b8cbfd-fc89-41c1-bb16-26f7173efe23",
+      "name": "Add Lead to Sequence Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        1440,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "options": {}
+      },
+      "id": "8a04ea82-d78e-4624-9c6e-8cb3b48b9a13",
+      "name": "Merge Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1920,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_EXECUTION_LOG_SHEET_ID",
+        "sheetName": "Log",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow": "Lead Sniper",
+            "status": "={{ $json.status || 'done' }}",
+            "detail": "={{ $json.company || '' }} score {{ $json.score || '' }}"
+          }
+        }
+      },
+      "id": "5f1f62bd-5043-4a00-b070-d80eb1bf46c6",
+      "name": "Log Execution",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        2160,
+        180
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "8e6997f2-d59f-4df4-923e-248e68f8ad77",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_ERROR_LOG_SHEET_ID",
+        "sheetName": "Errors",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow": "={{ $json.workflow?.name }}",
+            "node": "={{ $json.execution?.lastNodeExecuted }}",
+            "error": "={{ $json.execution?.error }}",
+            "execution_id": "={{ $json.execution?.id }}"
+          }
+        }
+      },
+      "id": "92655c78-eaca-4bfb-b2bf-f6653552f92e",
+      "name": "Log Error to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        240,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Lead Sniper FAILED: {{ $json.error }}",
+        "additionalFields": {}
+      },
+      "id": "19dfc7cc-feaf-4876-bf95-d82f0b52e544",
+      "name": "Notify on Error (Telegram)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 2,
+      "position": [
+        480,
+        700
+      ]
+    }
+  ],
+  "connections": {
+    "Validate Lead": {
+      "main": [
+        [
+          {
+            "node": "Enrich Lead (Apollo-style)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich Lead (Apollo-style)": {
+      "main": [
+        [
+          {
+            "node": "Score Lead & Write First Line (Gemini Agent)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score Lead & Write First Line (Gemini Agent)": {
+      "main": [
+        [
+          {
+            "node": "Mark Draft \u2014 Needs Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Draft \u2014 Needs Approval": {
+      "main": [
+        [
+          {
+            "node": "Hot Lead? (score >= 80)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Hot Lead to Sequence Sheet": {
+      "main": [
+        [
+          {
+            "node": "Telegram Ping \u2014 Hot Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Ping \u2014 Hot Lead": {
+      "main": [
+        [
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Lead to Sequence Sheet": {
+      "main": [
+        [
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Results": {
+      "main": [
+        [
+          {
+            "node": "Log Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook \u2014 Lead": {
+      "main": [
+        [
+          {
+            "node": "Validate Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Score Lead & Write First Line (Gemini Agent)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hot Lead? (score >= 80)": {
+      "main": [
+        [
+          {
+            "node": "Add Hot Lead to Sequence Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Add Lead to Sequence Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Log Error to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Error to Sheet": {
+      "main": [
+        [
+          {
+            "node": "Notify on Error (Telegram)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

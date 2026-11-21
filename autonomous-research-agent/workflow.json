@@ -1,0 +1,638 @@
+{
+  "name": "Autonomous Research Agent \u2014 Siva",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "becdceef-6f8d-5c24-9dd2-ae18a6720ba0",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "research-agent",
+        "responseMode": "lastNode",
+        "options": {
+          "responseData": "firstEntryJson"
+        }
+      },
+      "id": "3c2b39ca-f832-5018-868c-66fc0731d265",
+      "name": "Webhook \u2014 Research Topic",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = $input.first().json.body || $input.first().json;\nconst topic = (b.topic || b.query || '').trim();\nif (!topic) throw new Error('No topic supplied \u2014 send {\"topic\": \"...\"} to the webhook.');\nreturn [{json:{topic, requested_by: b.requested_by || 'siva', requested_at: new Date().toISOString()}}];"
+      },
+      "id": "362812f3-0061-5edd-ac65-c73f96e9457c",
+      "name": "Validate Topic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://html.duckduckgo.com/html/?q={{ $json.topic | urlencode }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "id": "ebc8c8e6-d714-5054-9b5a-af85e773588a",
+      "name": "Search the Web",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://r.jina.ai/{{ $json.url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "id": "a6a5daa6-ef23-5e26-9bc4-09a1e1a055b2",
+      "name": "Fetch Top Pages",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Keep only claims that trace to a fetched URL. Drop any item with no URL.\n// Output keeps source_url alongside every extracted passage so the report\n// can cite it. Nothing here invents a source.\nconst items = $input.all().map(i=>i.json).filter(j=>j.url || j.source_url);\nreturn [{json:{topic: $input.first().json.topic, sources: items.map(j=>({url: j.url||j.source_url, text: (j.text||j.body||'').slice(0,4000)}))}}];"
+      },
+      "id": "0117fb00-4b55-528f-b1af-a4f34309e575",
+      "name": "Cross-Check Sources",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "model": "gemini-2.0-flash",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "4c6421ec-2b95-58b6-a10f-b1e9dda3fe33",
+      "name": "Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        960,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Write a cited research report on: {{ $json.topic }}. Use ONLY the fetched sources below \u2014 every claim must cite one of these URLs, inline as [1], [2], etc. with a Sources list at the end. If sources disagree, say so. If a claim cannot be traced to a fetched URL, OMIT it \u2014 never invent a source, quote, statistic or URL. Sources: {{ JSON.stringify($json.sources) }}. Return JSON: {\"title\": \"\", \"report_markdown\": \"\", \"sources\": [\"url\", ...]}.",
+        "options": {
+          "systemMessage": "You are helping Siva (Sivasai Boggu). Never invent facts, emails, prices or sources. If you do not know, say so."
+        }
+      },
+      "id": "42f83776-25a9-5667-b92a-f1907f0e3023",
+      "name": "Research Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        960,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "title",
+              "value": "={{ $json.output?.title }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "report_markdown",
+              "value": "={{ $json.output?.report_markdown }}",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "sources",
+              "value": "={{ JSON.stringify($json.output?.sources) }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6c9e452a-35a6-5cb5-9588-b20c38a2cdf0",
+      "name": "Draft Report",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1200,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Approval needed: research report before it is saved to Google Docs and emailed to Siva. Reply APPROVED in the Approval sheet (tab Approvals, key=latest, value=approved) or edit the row. Workflow waits 60 min, then checks the sheet."
+      },
+      "id": "7320651b-4795-5ea2-82ba-0cb934e523e9",
+      "name": "Send Approval Request",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1440,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 60,
+        "unit": "minutes"
+      },
+      "id": "a14ad94a-598d-5999-a8c5-4ce2b713a516",
+      "name": "Wait for Approval",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1680,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "lookup",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Approvals",
+          "mode": "list",
+          "cachedResultName": "Approvals"
+        },
+        "lookupColumn": "key",
+        "lookupValue": "latest"
+      },
+      "id": "a6a34561-d55d-56e1-9dec-86b63ee15305",
+      "name": "Read Approval Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "approval-approved",
+              "leftValue": "={{ ($json.value || '').toLowerCase() === 'approved' }}",
+              "operator": {
+                "name": "filter.operator.boolean.true",
+                "operation": "true",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      },
+      "id": "3eaa7b92-9a31-5d6b-a56e-fbae5ba27cbf",
+      "name": "Approval Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2160,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "operation": "create",
+        "title": "=Research: {{ $json.title }}",
+        "body": "= {{ $json.report_markdown }}\n\nSources:\n{{ $json.sources }}"
+      },
+      "id": "c061ac48-d3f7-56b5-b295-f8e85dd0cf96",
+      "name": "Save to Google Docs",
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "sivasaiboggu@gmail.com",
+        "subject": "=Research report ready: {{ $json.title }}",
+        "emailType": "text",
+        "message": "=Your research report on '{{ $json.title }}' is ready in Google Docs (see the Google Docs node output for the link).\n\nEvery claim in it traces to a fetched source listed at the end of the report \u2014 no invented sources.\n\n\u2014 Research Agent (human-approved before sending)"
+      },
+      "id": "c7be3f6c-331f-5168-a275-c23eec6d7bf6",
+      "name": "Email Siva Report Link",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2640,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Execution Log",
+          "mode": "list",
+          "cachedResultName": "Execution Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now }}",
+            "workflow": "={{ $workflow.name }}",
+            "status": "success",
+            "summary": "={{ $json.title }}"
+          },
+          "matchingColumns": [
+            "timestamp",
+            "workflow",
+            "status",
+            "summary"
+          ],
+          "schema": []
+        }
+      },
+      "id": "73426244-cf04-51bf-acaf-c2310f747881",
+      "name": "Log Execution",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        2880,
+        120
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "a1aa5d84-a235-5bd7-93ff-03ce76d6f5d7",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Error Log",
+          "mode": "list",
+          "cachedResultName": "Error Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now }}",
+            "workflow": "={{ $json.workflow?.name }}",
+            "error": "={{ $json.error?.message }}",
+            "node": "={{ $json.node?.name }}"
+          },
+          "matchingColumns": [
+            "timestamp",
+            "workflow",
+            "error",
+            "node"
+          ],
+          "schema": []
+        }
+      },
+      "id": "8505595e-7c3a-5020-b69d-91493e068d80",
+      "name": "Log Error to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=\u26a0\ufe0f n8n error in {{ $json.workflow?.name }}: {{ $json.error?.message }}. Logged to sheet."
+      },
+      "id": "e3f9acd1-d560-548b-9c5f-7cac16fd29a7",
+      "name": "Notify Siva \u2014 Error",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Autonomous Research Agent \u2014 Siva\nWebhook/chat topic \u2192 web search (DuckDuckGo) \u2192 fetch top pages \u2192 cross-check sources \u2192 Gemini writes a cited report \u2192 HUMAN APPROVAL \u2192 saved to Google Docs \u2192 Siva emailed the link. Every claim must trace to a fetched URL; untraceable claims are omitted, never invented.",
+        "height": 180,
+        "width": 420
+      },
+      "id": "f09b1287-2bb7-5c85-ac72-5f7a61b58b0f",
+      "name": "Sticky Note \u2014 Flow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "content": "MEMORY: store per run in the Research Log sheet tab: topic, sources used, report doc link, date. Before writing, the agent should be given past reports on the same topic (read from that sheet) so it does not repeat work \u2014 wire the sheet read into 'Cross-Check Sources' when the log exists.",
+        "height": 180,
+        "width": 420
+      },
+      "id": "b106da39-4093-51c4-9576-a4258496f261",
+      "name": "Sticky Note \u2014 Memory Layer",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        480,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "content": "CREDENTIALS NEEDED (pick/create on import \u2014 no credential is set in this file):\n\u2022 Gemini Chat Model \u2192 Google Gemini API\n\u2022 Send Approval Request / Notify Siva \u2014 Error \u2192 Telegram account\n\u2022 Save to Google Docs \u2192 Google Docs account\n\u2022 Email Siva Report Link \u2192 Gmail account (sivasaiboggu@gmail.com)\n\u2022 Read Approval Sheet / Log Execution / Log Error to Sheet \u2192 Google Sheets account\n\u2022 Search the Web / Fetch Top Pages \u2192 no credential needed\nSee SETUP.md \u00a72 for how to create each one.",
+        "height": 260,
+        "width": 420
+      },
+      "id": "f65934f5-80d0-5b82-a019-6778f1f02f33",
+      "name": "Sticky Note \u2014 Credentials",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        960,
+        -320
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Topic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook \u2014 Research Topic": {
+      "main": [
+        [
+          {
+            "node": "Validate Topic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Topic": {
+      "main": [
+        [
+          {
+            "node": "Search the Web",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search the Web": {
+      "main": [
+        [
+          {
+            "node": "Fetch Top Pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Top Pages": {
+      "main": [
+        [
+          {
+            "node": "Cross-Check Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cross-Check Sources": {
+      "main": [
+        [
+          {
+            "node": "Research Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Research Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Research Agent": {
+      "main": [
+        [
+          {
+            "node": "Draft Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft Report": {
+      "main": [
+        [
+          {
+            "node": "Send Approval Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Approval Request": {
+      "main": [
+        [
+          {
+            "node": "Wait for Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Approval": {
+      "main": [
+        [
+          {
+            "node": "Read Approval Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Approval Sheet": {
+      "main": [
+        [
+          {
+            "node": "Approval Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval Approved?": {
+      "main": [
+        [
+          {
+            "node": "Save to Google Docs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Save to Google Docs": {
+      "main": [
+        [
+          {
+            "node": "Email Siva Report Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Siva Report Link": {
+      "main": [
+        [
+          {
+            "node": "Log Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Log Error to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Error to Sheet": {
+      "main": [
+        [
+          {
+            "node": "Notify Siva \u2014 Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

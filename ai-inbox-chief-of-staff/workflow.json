@@ -1,0 +1,637 @@
+{
+ "name": "AI Inbox Chief of Staff — Siva",
+ "nodes": [
+  {
+   "parameters": {
+    "content": "CREDENTIALS NEEDED (pick/create on import — no credential is set in this file):\nn8n shows \"No credential set\" on each node below; click the node and pick/create the credential. No key or secret is stored in this file.\n- Gmail account (gmailOAuth2) — Gmail Trigger — New Email, Archive Email, Save Draft Reply to Gmail, Send Approved Reply\n- Google Gemini(PaLM) Api (googlePalmApi) — Gemini Chat Model\n- Google Sheets account (googleSheetsOAuth2) — Log Email to Sheet, Log Delegate Task, Check Approval Sheet, Log Not Sent — Awaiting Approval, Log Execution, Log Error to Sheet\n- Telegram account (telegramApi) — Send Urgent to Telegram — Approve/Edit, Notify Error via Telegram",
+    "height": 216,
+    "width": 560,
+    "color": 4
+   },
+   "id": "40112885-a5e2-451d-91c7-41c743b77ceb",
+   "name": "Sticky Note — Credentials",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    0,
+    -496
+   ]
+  },
+  {
+   "parameters": {
+    "content": "AI Inbox Chief of Staff — Siva\nGmail trigger → Gemini classifies each email (urgent / reply / archive / delegate) and drafts replies in Siva's voice.\nUrgent mail goes to Telegram with Approve/Edit. Everything is logged to Sheets. NOTHING is sent without approval.",
+    "height": 140,
+    "width": 560,
+    "color": 4
+   },
+   "id": "d379f0af-9d93-4a93-944d-d677727db93f",
+   "name": "About This Workflow",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    0,
+    -260
+   ]
+  },
+  {
+   "parameters": {
+    "content": "Memory: the Inbox Memory sheet logs sender, category, draft sent/edited, and Siva's corrections, so future drafts learn his voice and which senders he treats as urgent. No Postgres/vector DB connection is claimed.",
+    "height": 140,
+    "width": 560,
+    "color": 4
+   },
+   "id": "7d51b474-fe94-4bb5-9bd7-c8f186c7f378",
+   "name": "Memory Layer (no live DB invented)",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    0,
+    500
+   ]
+  },
+  {
+   "parameters": {
+    "pollTimes": {
+     "item": [
+      {
+       "mode": "everyMinute"
+      }
+     ]
+    },
+    "filters": {}
+   },
+   "id": "fb0a5f40-d23e-4c71-86e1-811bc90a6952",
+   "name": "Gmail Trigger — New Email",
+   "type": "n8n-nodes-base.gmailTrigger",
+   "typeVersion": 1.2,
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "promptType": "text",
+    "text": "=Classify this email into exactly one category: urgent, reply, archive, or delegate. Consider sender, subject, deadline language and whether Siva must act. Output JSON only: {\"category\": \"urgent|reply|archive|delegate\", \"reason\": \"one sentence\", \"sender\": \"...\", \"subject\": \"...\"}. Email: {{ JSON.stringify($json).slice(0, 4000) }}",
+    "options": {}
+   },
+   "id": "536a188c-5675-4047-b6c3-1afa8a0428ad",
+   "name": "Email Classifier",
+   "type": "@n8n/n8n-nodes-langchain.agent",
+   "typeVersion": 1.7,
+   "position": [
+    240,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "model": "gemini-2.0-flash",
+    "options": {
+     "temperature": 0.3
+    }
+   },
+   "id": "9bafb26c-cf9d-4d3e-af84-92b99827e67e",
+   "name": "Gemini Chat Model",
+   "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+   "typeVersion": 1,
+   "position": [
+    240,
+    280
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Inbox Log",
+    "operation": "append",
+    "columns": {
+     "mappingMode": "manual",
+     "value": {
+      "timestamp": "={{ $now }}",
+      "sender": "={{ $json.sender || '' }}",
+      "subject": "={{ $json.subject || '' }}",
+      "category": "={{ $json.category || '' }}",
+      "reason": "={{ $json.reason || '' }}"
+     }
+    }
+   },
+   "id": "afe94db4-a23c-48e3-8cbb-a28ba06a784e",
+   "name": "Log Email to Sheet",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    480,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "mode": "rules",
+    "rules": {
+     "values": [
+      {
+       "value1": "={{ $json.category }}",
+       "operation": "equals",
+       "value2": "urgent"
+      },
+      {
+       "value1": "={{ $json.category }}",
+       "operation": "equals",
+       "value2": "reply"
+      },
+      {
+       "value1": "={{ $json.category }}",
+       "operation": "equals",
+       "value2": "archive"
+      },
+      {
+       "value1": "={{ $json.category }}",
+       "operation": "equals",
+       "value2": "delegate"
+      }
+     ]
+    },
+    "fallbackOutput": 2
+   },
+   "id": "d0e28fc1-1e3e-4ae5-9111-3391d15196bb",
+   "name": "Route by Category",
+   "type": "n8n-nodes-base.switch",
+   "typeVersion": 3.2,
+   "position": [
+    720,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "chatId": "YOUR_TELEGRAM_CHAT_ID",
+    "text": "=🚨 URGENT email from {{ $json.sender }}\nSubject: {{ $json.subject }}\nWhy: {{ $json.reason }}\n\nReply APPROVE in the Approval tab to send the drafted reply, or EDIT with your changes. Nothing is sent until then.",
+    "additionalFields": {
+     "appendAttribution": false
+    }
+   },
+   "id": "f2d17515-22d5-4409-a768-37f523c26a92",
+   "name": "Send Urgent to Telegram — Approve/Edit",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    960,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "promptType": "text",
+    "text": "=Draft a reply to the email in the input, in Siva's voice: direct, polite, concise, BTech CS final-year student at IIIT Kottayam, AI agent / software developer intern. Answer the question asked, propose a concrete next step, no invented commitments. Output the draft reply only.",
+    "options": {}
+   },
+   "id": "145cdc0d-9cd8-4631-a91f-d6ec2a578dea",
+   "name": "Draft Reply in Siva's Voice",
+   "type": "@n8n/n8n-nodes-langchain.agent",
+   "typeVersion": 1.7,
+   "position": [
+    960,
+    200
+   ]
+  },
+  {
+   "parameters": {
+    "resource": "message",
+    "operation": "archive",
+    "messageId": "={{ $json.id || '' }}"
+   },
+   "id": "f177e0af-4dbe-41f9-8440-b48953b1d555",
+   "name": "Archive Email",
+   "type": "n8n-nodes-base.gmail",
+   "typeVersion": 2.1,
+   "position": [
+    960,
+    400
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Delegate Tasks",
+    "operation": "append",
+    "columns": {
+     "mappingMode": "manual",
+     "value": {
+      "timestamp": "={{ $now }}",
+      "sender": "={{ $json.sender || '' }}",
+      "subject": "={{ $json.subject || '' }}",
+      "delegate_to": "YOUR_DELEGATE_NAME",
+      "status": "delegated — awaiting human confirmation"
+     }
+    }
+   },
+   "id": "12f8b149-ea2b-4b6f-a749-2e35f10ea67e",
+   "name": "Log Delegate Task",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    960,
+    600
+   ]
+  },
+  {
+   "parameters": {
+    "resource": "draft",
+    "operation": "create",
+    "sendTo": "={{ $json.sender || '' }}",
+    "subject": "=Re: {{ $json.subject || '' }}",
+    "emailType": "text",
+    "message": "= {{ $json.output || '' }}"
+   },
+   "id": "94f7f309-6d74-4927-aa59-2b548720bdba",
+   "name": "Save Draft Reply to Gmail",
+   "type": "n8n-nodes-base.gmail",
+   "typeVersion": 2.1,
+   "position": [
+    1200,
+    200
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Approval",
+    "operation": "read"
+   },
+   "id": "c296e2c1-f78f-4252-98f5-8f909c049ffa",
+   "name": "Check Approval Sheet",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    1440,
+    200
+   ]
+  },
+  {
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose"
+     },
+     "conditions": [
+      {
+       "id": "91d690ba-691b-4647-bf5a-7598ffa82b32",
+       "leftValue": "={{ $json.approval || '' }}",
+       "rightValue": "APPROVE",
+       "operator": {
+        "type": "string",
+        "operation": "equals"
+       }
+      }
+     ],
+     "combinator": "and"
+    }
+   },
+   "id": "0766903a-9792-4d86-8535-b7e2681a2d4e",
+   "name": "Approved to Send?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    1680,
+    200
+   ]
+  },
+  {
+   "parameters": {
+    "resource": "message",
+    "operation": "send",
+    "sendTo": "={{ $json.sender || '' }}",
+    "subject": "=Re: {{ $json.subject || '' }}",
+    "emailType": "text",
+    "message": "= {{ $json.output || '' }}"
+   },
+   "id": "a8826573-0335-4863-b9fc-337308094f85",
+   "name": "Send Approved Reply",
+   "type": "n8n-nodes-base.gmail",
+   "typeVersion": 2.1,
+   "position": [
+    1920,
+    200
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Execution Log",
+    "operation": "append",
+    "columns": {
+     "mappingMode": "manual",
+     "value": {
+      "timestamp": "={{ $now }}",
+      "workflow": "AI Inbox Chief of Staff — Siva",
+      "status": "awaiting approval — nothing sent",
+      "summary": "Reply drafted and saved; send blocked pending approval."
+     }
+    }
+   },
+   "id": "f633a8a5-85c2-4d61-ae32-917c5c1b1a17",
+   "name": "Log Not Sent — Awaiting Approval",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    1920,
+    400
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Execution Log",
+    "operation": "append",
+    "columns": {
+     "mappingMode": "manual",
+     "value": {
+      "timestamp": "={{ $now }}",
+      "workflow": "AI Inbox Chief of Staff — Siva",
+      "status": "completed",
+      "summary": "={{ JSON.stringify($json).slice(0, 500) }}"
+     }
+    }
+   },
+   "id": "e9cbfc9c-69cb-452f-9d5d-263e774e3126",
+   "name": "Log Execution",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    2160,
+    200
+   ]
+  },
+  {
+   "parameters": {},
+   "id": "54523374-08ee-434d-8cbe-4e529bf217e5",
+   "name": "Error Trigger",
+   "type": "n8n-nodes-base.errorTrigger",
+   "typeVersion": 1,
+   "position": [
+    0,
+    700
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Error Log",
+    "operation": "append",
+    "columns": {
+     "mappingMode": "manual",
+     "value": {
+      "timestamp": "={{ $now }}",
+      "workflow": "={{ $json.workflow?.name || 'this workflow' }}",
+      "error": "={{ $json.error?.message || JSON.stringify($json) }}",
+      "node": "={{ $json.node || '' }}"
+     }
+    }
+   },
+   "id": "3bfa780f-394f-43c5-b427-a28f3e1ac5c5",
+   "name": "Log Error to Sheet",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    240,
+    700
+   ]
+  },
+  {
+   "parameters": {
+    "chatId": "YOUR_TELEGRAM_CHAT_ID",
+    "text": "=⚠️ Workflow error: {{ $json.error?.message || 'see Error Log sheet' }}. Check the Error Log tab in YOUR_GOOGLE_SHEET_ID.",
+    "additionalFields": {
+     "appendAttribution": false
+    }
+   },
+   "id": "19965f94-f698-4f4a-bc21-ce95f3c05588",
+   "name": "Notify Error via Telegram",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    480,
+    700
+   ]
+  }
+ ],
+ "connections": {
+  "Gmail Trigger — New Email": {
+   "main": [
+    [
+     {
+      "node": "Email Classifier",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Gemini Chat Model": {
+   "ai_languageModel": [
+    [
+     {
+      "node": "Email Classifier",
+      "type": "ai_languageModel",
+      "index": 0
+     },
+     {
+      "node": "Draft Reply in Siva's Voice",
+      "type": "ai_languageModel",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Email Classifier": {
+   "main": [
+    [
+     {
+      "node": "Log Email to Sheet",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Log Email to Sheet": {
+   "main": [
+    [
+     {
+      "node": "Route by Category",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Route by Category": {
+   "main": [
+    [
+     {
+      "node": "Send Urgent to Telegram — Approve/Edit",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Draft Reply in Siva's Voice",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Archive Email",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Log Delegate Task",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Send Urgent to Telegram — Approve/Edit": {
+   "main": [
+    [
+     {
+      "node": "Draft Reply in Siva's Voice",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Draft Reply in Siva's Voice": {
+   "main": [
+    [
+     {
+      "node": "Save Draft Reply to Gmail",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Save Draft Reply to Gmail": {
+   "main": [
+    [
+     {
+      "node": "Check Approval Sheet",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Check Approval Sheet": {
+   "main": [
+    [
+     {
+      "node": "Approved to Send?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Approved to Send?": {
+   "main": [
+    [
+     {
+      "node": "Send Approved Reply",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Log Not Sent — Awaiting Approval",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Send Approved Reply": {
+   "main": [
+    [
+     {
+      "node": "Log Execution",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Log Not Sent — Awaiting Approval": {
+   "main": [
+    [
+     {
+      "node": "Log Execution",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Archive Email": {
+   "main": [
+    [
+     {
+      "node": "Log Execution",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Log Delegate Task": {
+   "main": [
+    [
+     {
+      "node": "Log Execution",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Error Trigger": {
+   "main": [
+    [
+     {
+      "node": "Log Error to Sheet",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Log Error to Sheet": {
+   "main": [
+    [
+     {
+      "node": "Notify Error via Telegram",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "active": false,
+ "settings": {
+  "executionOrder": "v1"
+ },
+ "pinData": {}
+}

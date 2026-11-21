@@ -1,0 +1,679 @@
+{
+  "name": "Smart Home + Context Agent \u2014 Siva",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "c96f3f13-546d-5d49-8457-9d746ca371e0",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "bb99c3cb-005a-582d-b6c9-e9e42f11d7da",
+      "name": "Schedule \u2014 Every 30 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.open-meteo.com/v1/forecast?latitude=15.33&longitude=77.63&current=temperature_2m,weather_code&timezone=Asia%2FKolkata",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "id": "aebfb050-875b-54e5-ae5f-7546c0f19550",
+      "name": "Fetch Weather",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "getAll",
+        "calendarId": "YOUR_CALENDAR_ID",
+        "returnAll": false,
+        "limit": 5,
+        "options": {}
+      },
+      "id": "852f9595-b06c-5f7a-84df-9b51c9fc120b",
+      "name": "Check Calendar",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 2,
+      "position": [
+        480,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "model": "gemini-2.0-flash",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "982d3189-2fec-5852-9334-d01e7110b6e0",
+      "name": "Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        480,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are Siva's home context agent (Gooty, Asia/Kolkata). Weather: {{ JSON.stringify($json) }}. Upcoming calendar events are in the input. Decide ONLY safe home actions: lights, thermostat, and a 'leave now, traffic is bad' style alert if a calendar event is soon. Return JSON only: {\"actions\": [{\"service\": \"light.turn_on|climate.set_temperature\", \"entity\": \"\", \"value\": \"\"}], \"alert\": \"\" or null, \"needs_approval\": true/false, \"reason\": \"\"}. NEVER propose spending money, unlocking doors, or disabling security. If unsure, set needs_approval=true.",
+        "options": {
+          "systemMessage": "You are helping Siva (Sivasai Boggu). Never invent facts, emails, prices or sources. If you do not know, say so."
+        }
+      },
+      "id": "b7f53307-b5e4-5a15-835b-4636291db1a1",
+      "name": "Decide Home Actions Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        480,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "safety-check",
+              "leftValue": "={{ $json.output?.needs_approval !== true }}",
+              "operator": {
+                "name": "filter.operator.boolean.true",
+                "operation": "true",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      },
+      "id": "4f35552c-7671-5d2a-8673-53adf50453f7",
+      "name": "Safety Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        720,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_HOME_ASSISTANT_URL/api/services/light/turn_on",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "= {\"entity_id\": \"{{ $json.output?.actions?.[0]?.entity }}\", \"actions\": {{ JSON.stringify($json.output?.actions || []) }} }"
+      },
+      "id": "f6299121-42c2-53c0-a4ad-9dbd2977a69d",
+      "name": "Execute via Home Assistant",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=\ud83c\udfe0 Home actions executed: {{ JSON.stringify($json.output?.actions) }}. {{ $json.output?.alert }} (Reason: {{ $json.output?.reason }})"
+      },
+      "id": "fb090e94-8cab-5e8e-b08f-0c21adf0e22c",
+      "name": "Send Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Approval needed: smart-home action flagged as needing approval (money/door/security-adjacent actions are NEVER auto-approved). Reply APPROVED in the Approval sheet (tab Approvals, key=latest, value=approved) or edit the row. Workflow waits 60 min, then checks the sheet."
+      },
+      "id": "314f86a5-0a52-55dd-beef-130e757a3226",
+      "name": "Send Approval Request",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        960,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 60,
+        "unit": "minutes"
+      },
+      "id": "4374f745-ce3b-57dd-b84b-bf8cdd3f70b3",
+      "name": "Wait for Approval",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "lookup",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Approvals",
+          "mode": "list",
+          "cachedResultName": "Approvals"
+        },
+        "lookupColumn": "key",
+        "lookupValue": "latest"
+      },
+      "id": "c8c91229-23d7-599c-83d5-05c0a575e988",
+      "name": "Read Approval Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "approval-approved",
+              "leftValue": "={{ ($json.value || '').toLowerCase() === 'approved' }}",
+              "operator": {
+                "name": "filter.operator.boolean.true",
+                "operation": "true",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      },
+      "id": "a1a65697-0e97-5923-8418-8e220e537f1d",
+      "name": "Approval Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append"
+      },
+      "id": "20f02a8a-89df-5e43-a0dd-892aad2f1465",
+      "name": "Merge Outcomes",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        2160,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Execution Log",
+          "mode": "list",
+          "cachedResultName": "Execution Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now }}",
+            "workflow": "={{ $workflow.name }}",
+            "status": "success",
+            "summary": "={{ JSON.stringify($json.output?.actions || []) }}"
+          },
+          "matchingColumns": [
+            "timestamp",
+            "workflow",
+            "status",
+            "summary"
+          ],
+          "schema": []
+        }
+      },
+      "id": "69654ac2-f2e3-5e7c-bdd6-26ddc471e8f6",
+      "name": "Log Execution",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Home Log",
+          "mode": "list",
+          "cachedResultName": "Home Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now }}",
+            "actions": "={{ JSON.stringify($json.output?.actions || []) }}",
+            "alert": "={{ $json.output?.alert }}",
+            "reason": "={{ $json.output?.reason }}"
+          },
+          "matchingColumns": [
+            "timestamp",
+            "actions",
+            "alert",
+            "reason"
+          ],
+          "schema": []
+        }
+      },
+      "id": "c8b83c8a-9a37-5ea4-a450-788b21e28ec0",
+      "name": "Log to Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "3308e93d-2ffc-56f6-ac43-396872e3de5b",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Error Log",
+          "mode": "list",
+          "cachedResultName": "Error Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now }}",
+            "workflow": "={{ $json.workflow?.name }}",
+            "error": "={{ $json.error?.message }}",
+            "node": "={{ $json.node?.name }}"
+          },
+          "matchingColumns": [
+            "timestamp",
+            "workflow",
+            "error",
+            "node"
+          ],
+          "schema": []
+        }
+      },
+      "id": "66dbfa72-39f9-5f52-9813-a9fb068cffe1",
+      "name": "Log Error to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=\u26a0\ufe0f n8n error in {{ $json.workflow?.name }}: {{ $json.error?.message }}. Logged to sheet."
+      },
+      "id": "da05f5aa-425a-5b16-95a1-98bc6e7cdb39",
+      "name": "Notify Siva \u2014 Error",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Smart Home + Context Agent \u2014 Siva\nEvery 30 min \u2192 weather (Open-Meteo, Gooty) + calendar \u2192 Gemini decides lights/thermostat/alerts \u2192 SAFETY CHECK: safe actions execute via Home Assistant webhook; anything needing approval (or any money/door action) goes to Telegram + Approval sheet first. Every action is logged to Sheets.",
+        "height": 180,
+        "width": 420
+      },
+      "id": "e51828a3-7087-57f0-9ec7-895c93ea092b",
+      "name": "Sticky Note \u2014 Flow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "content": "SAFETY (hard rule): no action that spends money or unlocks doors, ever, without human approval \u2014 and the agent is instructed never to propose those at all. Approval path is the only route for flagged actions. Log every decision, including 'no action', to the Home Log sheet.",
+        "height": 180,
+        "width": 420
+      },
+      "id": "199ff993-5264-5f2b-a422-d735c7527847",
+      "name": "Sticky Note \u2014 Safety",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        480,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "content": "CREDENTIALS NEEDED (pick/create on import \u2014 no credential is set in this file):\n\u2022 Gemini Chat Model \u2192 Google Gemini API\n\u2022 Check Calendar \u2192 Google Calendar account\n\u2022 Send Alert / Send Approval Request / Notify Siva \u2014 Error \u2192 Telegram account\n\u2022 Read Approval Sheet / Log to Sheets / Log Execution / Log Error to Sheet \u2192 Google Sheets account\n\u2022 Execute via Home Assistant \u2192 Home Assistant Long-Lived Token (HTTP Header Auth)\n\u2022 Fetch Weather (Open-Meteo) \u2192 no credential needed\nSee SETUP.md \u00a72 for how to create each one.",
+        "height": 260,
+        "width": 420
+      },
+      "id": "ffcc4c03-3274-5d8d-ac7c-2ac178540384",
+      "name": "Sticky Note \u2014 Credentials",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        960,
+        -320
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Weather",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule \u2014 Every 30 min": {
+      "main": [
+        [
+          {
+            "node": "Fetch Weather",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Weather": {
+      "main": [
+        [
+          {
+            "node": "Check Calendar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Calendar": {
+      "main": [
+        [
+          {
+            "node": "Decide Home Actions Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Decide Home Actions Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide Home Actions Agent": {
+      "main": [
+        [
+          {
+            "node": "Safety Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Safety Check": {
+      "main": [
+        [
+          {
+            "node": "Execute via Home Assistant",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Approval Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Approval Request": {
+      "main": [
+        [
+          {
+            "node": "Wait for Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Approval": {
+      "main": [
+        [
+          {
+            "node": "Read Approval Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Approval Sheet": {
+      "main": [
+        [
+          {
+            "node": "Approval Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval Approved?": {
+      "main": [
+        [
+          {
+            "node": "Execute via Home Assistant",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge Outcomes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute via Home Assistant": {
+      "main": [
+        [
+          {
+            "node": "Send Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Alert": {
+      "main": [
+        [
+          {
+            "node": "Log to Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Sheets": {
+      "main": [
+        [
+          {
+            "node": "Merge Outcomes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Outcomes": {
+      "main": [
+        [
+          {
+            "node": "Log Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Log Error to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Error to Sheet": {
+      "main": [
+        [
+          {
+            "node": "Notify Siva \u2014 Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

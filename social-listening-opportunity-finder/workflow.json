@@ -1,0 +1,722 @@
+{
+  "name": "Social Listening Opportunity Finder \u2014 Siva",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "Every 6h: search Reddit + X for people asking questions Siva's products solve (AI SDR agent, Voice Receptionist, HireMind) -> Gemini filters genuine buyers -> drafts helpful non-spammy replies -> queues for APPROVAL. NEVER auto-posts: approved replies land in a sheet for Siva to post manually.\nCredentials to set on import (nodes show 'No credential set'): Google Sheets OAuth2 (all Sheets nodes); Google Gemini API (chat model); Telegram (approval notify + error notify); X API Bearer Token via Header Auth (Search X). Reddit search needs no credential.",
+        "height": 120,
+        "width": 420
+      },
+      "id": "5d637364-8460-4cc1-870f-8ddcab247442",
+      "name": "Sticky Note \u2014 How this works",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -260
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "a30a3f8a-04dc-40da-ad36-f24a144e179a",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "954d65ae-b19b-45a0-8aa9-5627d8610425",
+      "name": "Schedule Trigger \u2014 Every 6 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.reddit.com/search.json?q=AI%20SDR%20OR%20cold%20email%20automation%20OR%20AI%20receptionist%20OR%20resume%20ATS&sort=new&limit=25",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000
+        },
+        "sendHeaders": true
+      },
+      "id": "af8465ba-76f8-4ff6-9a37-b7828d654f27",
+      "name": "Search Reddit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.x.com/2/tweets/search/recent?query=AI%20SDR%20OR%20AI%20receptionist%20OR%20ATS%20resume&max_results=25",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000
+        },
+        "sendHeaders": true
+      },
+      "id": "5ab17a62-137a-47b2-9692-2f34952098e9",
+      "name": "Search X",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append"
+      },
+      "id": "d1a744f0-e21e-48da-8e3f-64c41fd63e12",
+      "name": "Merge Search Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        480,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalise Reddit + X results to {source, author, text, url, postedAt}.\nconst items = $input.all(); const out = [];\nfor (const it of items) {\n  const j = it.json;\n  const posts = j.data?.children?.map(c => c.data) || j.data || [];\n  for (const p of posts) out.push({ json: { source: p.subreddit ? 'Reddit' : 'X',\n    author: p.author || p.author_id || 'unknown',\n    text: p.selftext ? (p.title + ' ' + p.selftext) : (p.text || p.title || ''),\n    url: p.url || (p.id ? 'https://x.com/i/status/' + p.id : ''),\n    postedAt: p.created_utc ? new Date(p.created_utc * 1000).toISOString() : (p.created_at || '') } });\n}\nreturn out;"
+      },
+      "id": "b543e6f9-8b81-4241-9f63-c5b1b88811b5",
+      "name": "Normalise Posts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You filter social posts for Siva (Sivasai Boggu, builds AI SDR agent, Voice Receptionist AI, HireMind resume analyser). For each post decide: is this person genuinely asking for help / a buyer for one of these products? Return ONLY valid JSON per post: {isBuyer (true/false), product ('AI SDR'|'Voice Receptionist'|'HireMind'|null), reason (short)}. Ignore spam, ads, job posts, and posts just mentioning AI. Be strict \u2014 false positives waste Siva's time."
+        },
+        "promptType": "define"
+      },
+      "id": "8ff5d663-83d5-4261-820f-f4299b184b88",
+      "name": "Gemini Filter Buyers",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        960,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.0-flash",
+        "options": {}
+      },
+      "id": "7ecc6be9-1efd-495c-9a25-a298e84508db",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        960,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "d519cac2-0292-4a4e-9815-76a48526edad",
+              "leftValue": "={{ $json.isBuyer }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.string.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true
+      },
+      "id": "7d8d8bb4-49d1-4dd4-a819-b68d08a14842",
+      "name": "Is Genuine Buyer?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1200,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [],
+          "value": {
+            "Source": "={{ $json.source }}",
+            "Author": "={{ $json.author }}",
+            "Text": "={{ $json.text }}",
+            "Reason": "={{ $json.reason }}",
+            "Logged At": "={{ $now.toISO() }}"
+          }
+        },
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "resource": "sheet",
+        "sheetName": "Skipped"
+      },
+      "id": "a94022a1-c96f-4aef-8382-59e190e44266",
+      "name": "Log Not a Buyer",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "Draft ONE helpful, non-spammy public reply (under 280 characters) to this person's question. Answer the question first; only mention Siva's matching product if it truly fits, in one short clause, no hype, no link-dropping, no 'DM me'. Return ONLY the reply text."
+        },
+        "promptType": "define"
+      },
+      "id": "4c7ae831-d615-49b2-9baf-13cbfdd378da",
+      "name": "Draft Helpful Reply",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        1440,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [],
+          "value": {
+            "Source": "={{ $json.source }}",
+            "Author": "={{ $json.author }}",
+            "Original Post": "={{ $json.url }}",
+            "Product": "={{ $json.product }}",
+            "Draft Reply": "={{ $json.output }}",
+            "Status": "PENDING",
+            "Queued At": "={{ $now.toISO() }}"
+          }
+        },
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "resource": "sheet",
+        "sheetName": "Approval Queue"
+      },
+      "id": "09b1ad16-6fe7-4341-a3c0-018d6ab5d55f",
+      "name": "Queue Reply for Approval",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "operation": "sendMessage",
+        "text": "=New social-listening reply queued for approval ({{ $json.Product }}).\nPost: {{ $json['Original Post'] }}\nDraft: {{ $json['Draft Reply'] }}\nMark APPROVED in the Approval Queue sheet to release it for manual posting. Nothing is posted automatically."
+      },
+      "id": "4a645ef8-c369-4389-8ad9-ec65fbef8194",
+      "name": "Notify Siva \u2014 Reply Ready",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1920,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 2,
+        "unit": "hours",
+        "resume": "afterTimeInterval"
+      },
+      "id": "bab5113b-ba3d-41aa-b9d3-423b091310f5",
+      "name": "Wait for Approval",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2160,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "read",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Approval Queue"
+      },
+      "id": "bed3759e-4741-4e0b-b898-735caee855f6",
+      "name": "Read Approval Status",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "8452b39d-ef6a-4dd5-a4ea-055b0168e481",
+              "leftValue": "={{ $json.Status }}",
+              "rightValue": "APPROVED",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.string.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true
+      },
+      "id": "36a5579f-2a97-49a0-81f1-349a6b9ca9a4",
+      "name": "Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2640,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [],
+          "value": {
+            "Source": "={{ $json.Source }}",
+            "Author": "={{ $json.Author }}",
+            "Original Post": "={{ $json['Original Post'] }}",
+            "Draft Reply": "={{ $json['Draft Reply'] }}",
+            "Status": "APPROVED \u2014 post manually, never auto-posted",
+            "Approved At": "={{ $now.toISO() }}"
+          }
+        },
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "resource": "sheet",
+        "sheetName": "Approved Replies"
+      },
+      "id": "7d314ae5-8c12-4b69-bd97-5da840ef0dd0",
+      "name": "Save Approved Reply",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        2880,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [],
+          "value": {
+            "Source": "={{ $json.Source }}",
+            "Author": "={{ $json.Author }}",
+            "Status": "DECLINED",
+            "Logged At": "={{ $now.toISO() }}"
+          }
+        },
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "resource": "sheet",
+        "sheetName": "Declined"
+      },
+      "id": "792fcbfd-2e01-4c53-8322-39de082ed867",
+      "name": "Log Declined",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        2880,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [],
+          "value": {
+            "At": "={{ $now.toISO() }}",
+            "Workflow": "Social Listening Opportunity Finder",
+            "Result": "={{ $json.Status || 'queued' }}",
+            "Detail": "={{ $json.Product || $json.Source || '' }}"
+          }
+        },
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "resource": "sheet",
+        "sheetName": "Execution Log"
+      },
+      "id": "841de1f8-285b-485b-bfce-9a9403a2d875",
+      "name": "Log Execution",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        3120,
+        480
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "504d77c2-9c6a-4696-99c0-b07502fc1a77",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        880
+      ]
+    },
+    {
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [],
+          "value": {
+            "At": "={{ $now.toISO() }}",
+            "Error": "={{ $json.error?.message || JSON.stringify($json.error || $json) }}",
+            "Node": "={{ $json.execution?.lastNodeExecuted || $json.node || 'unknown' }}",
+            "Workflow": "={{ $json.workflow?.name || 'unknown' }}"
+          }
+        },
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "resource": "sheet",
+        "sheetName": "Errors"
+      },
+      "id": "8d39da67-d006-4122-8eab-4777f57859e0",
+      "name": "Log Error to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        880
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "operation": "sendMessage",
+        "text": "=n8n workflow error. Check the Errors sheet.\nNode: {{ $json.execution?.lastNodeExecuted || 'unknown' }}\nError: {{ $json.error?.message || 'see Errors sheet' }}"
+      },
+      "id": "48682081-890e-4f4c-8cb7-9abebdd9a626",
+      "name": "Notify Error via Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        880
+      ]
+    }
+  ],
+  "connections": {
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "index": 0,
+            "node": "Gemini Filter Buyers",
+            "type": "ai_languageModel"
+          },
+          {
+            "index": 0,
+            "node": "Draft Helpful Reply",
+            "type": "ai_languageModel"
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Search Reddit",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger \u2014 Every 6 Hours": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Search Reddit",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Search Reddit": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Merge Search Results",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Search X": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Merge Search Results",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Merge Search Results": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Normalise Posts",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Normalise Posts": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Gemini Filter Buyers",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Gemini Filter Buyers": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Is Genuine Buyer?",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Is Genuine Buyer?": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Draft Helpful Reply",
+            "type": "main"
+          }
+        ],
+        [
+          {
+            "index": 0,
+            "node": "Log Not a Buyer",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Log Not a Buyer": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Log Execution",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Draft Helpful Reply": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Queue Reply for Approval",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Queue Reply for Approval": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Notify Siva \u2014 Reply Ready",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Notify Siva \u2014 Reply Ready": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Wait for Approval",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Wait for Approval": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Read Approval Status",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Read Approval Status": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Approved?",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Save Approved Reply",
+            "type": "main"
+          }
+        ],
+        [
+          {
+            "index": 0,
+            "node": "Log Declined",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Save Approved Reply": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Log Execution",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Log Declined": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Log Execution",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Log Error to Sheet",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Log Error to Sheet": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Notify Error via Telegram",
+            "type": "main"
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

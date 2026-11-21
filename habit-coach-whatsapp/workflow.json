@@ -1,0 +1,602 @@
+{
+  "name": "Habit Coach via WhatsApp \u2014 Siva",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "Daily 7 AM WhatsApp check-in (Siva replies in plain text) -> Gemini parses mood/sleep/workouts -> trends in Sheets -> nudge when patterns slip -> weekly insights email Sundays. Supportive coaching only \u2014 NO medical claims, diagnosis or treatment advice.\nCredentials to set on import (nodes show 'No credential set'): Google Sheets OAuth2 (all Sheets nodes); Google Gemini API (chat model); WhatsApp Business (check-in, trigger, nudge); Gmail OAuth2 (weekly email); Telegram (error notify).",
+        "height": 120,
+        "width": 420
+      },
+      "id": "7d96e2a0-f1ca-47d9-8a0e-fbf284096e79",
+      "name": "Sticky Note \u2014 How this works",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -260
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "050a5760-f907-4b10-95f8-b7b19275c834",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * *"
+            }
+          ]
+        }
+      },
+      "id": "777bd5ca-43e3-4885-ae08-32ef65f9bf18",
+      "name": "Daily Schedule \u2014 7 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "read",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Habits"
+      },
+      "id": "c9a10fa9-77ce-4826-9ee3-5f8562ac832f",
+      "name": "Read Habits Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are Siva's friendly habit coach. Siva is Sivasai Boggu, a final-year BTech CS student and Whispry intern. Using his recent habit rows (mood, sleep hours, workouts, streaks), write ONE short warm WhatsApp check-in (under 60 words) asking how he slept, his mood 1-10, and whether he worked out. Encouraging, never shaming. No medical claims, no diagnosis, no treatment advice \u2014 general wellness only."
+        },
+        "promptType": "define"
+      },
+      "id": "0aedd264-6011-4e8b-8ce5-edcbb45cd060",
+      "name": "Gemini Coach \u2014 Write Check-in",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        480,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.0-flash",
+        "options": {}
+      },
+      "id": "3bd671af-922a-44dd-8264-8be0b18384a2",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        480,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "YOUR_WHATSAPP_PHONE_NUMBER_ID",
+        "recipientPhoneNumber": "+919573719115",
+        "message": "={{ $json.output }}",
+        "messageType": "text"
+      },
+      "id": "6d768620-1cdf-4ef1-9bff-26b17408ef96",
+      "name": "Send WhatsApp Check-in",
+      "type": "n8n-nodes-base.whatsapp",
+      "typeVersion": 1,
+      "position": [
+        720,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "updates": [
+          "messages"
+        ]
+      },
+      "id": "beb58bbd-9a29-4e6a-af19-15be9992a61f",
+      "name": "WhatsApp Trigger \u2014 Reply",
+      "type": "n8n-nodes-base.whatsappTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "Parse Siva's plain-text habit reply into ONLY valid JSON: {mood (1-10 or null), sleepHours (number or null), workedOut (true/false/null), note (short string)}. Never invent values \u2014 use null when he did not say. No medical interpretation."
+        },
+        "promptType": "define"
+      },
+      "id": "48c7bd89-ab89-4537-9e16-7bc849876cca",
+      "name": "Gemini Parse Reply",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        240,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [],
+          "value": {
+            "Date": "={{ $now.toISO() }}",
+            "Mood": "={{ $json.mood }}",
+            "Sleep Hours": "={{ $json.sleepHours }}",
+            "Worked Out": "={{ $json.workedOut }}",
+            "Note": "={{ $json.note }}"
+          }
+        },
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "resource": "sheet",
+        "sheetName": "Check-ins"
+      },
+      "id": "c6cd8c54-4310-4d12-9864-8dc889eb36c9",
+      "name": "Store Check-in",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Slip = mood <= 4 twice in a row, OR sleep < 6h for 2+ days, OR no workout 3+ days.\n// Reads the Check-ins rows passed in; outputs slip=true/false with a reason.\nconst rows = $input.all().map(i => i.json);\nconst last = rows.slice(-3);\nconst lowMood = last.filter(r => Number(r.Mood) > 0 && Number(r.Mood) <= 4).length >= 2;\nconst lowSleep = last.filter(r => Number(r['Sleep Hours']) > 0 && Number(r['Sleep Hours']) < 6).length >= 2;\nconst noWorkout = last.filter(r => String(r['Worked Out']).toLowerCase() === 'false').length >= 3;\nconst slip = lowMood || lowSleep || noWorkout;\nreturn [{ json: { slip, reason: lowMood ? 'low mood 2 days' : lowSleep ? 'short sleep 2 days' : noWorkout ? 'no workout 3 days' : 'on track' } }];"
+      },
+      "id": "e7d3baad-ab02-44fb-bca1-5d5a15b819b6",
+      "name": "Detect Slipping Pattern",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "fefe6f50-c036-483a-b510-49ee133d2091",
+              "leftValue": "={{ $json.slip }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.string.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true
+      },
+      "id": "65e84576-d04b-4cfd-913c-b945b0032346",
+      "name": "Pattern Slipping?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        960,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "YOUR_WHATSAPP_PHONE_NUMBER_ID",
+        "recipientPhoneNumber": "+919573719115",
+        "message": "=Hey Siva \u2014 noticed {{ $json.reason }} lately. Small step today: a 10-min walk or an early night? No pressure, just checking in. (General wellness nudge, not medical advice.)",
+        "messageType": "text"
+      },
+      "id": "0a98757a-ee00-42a1-9685-db5f41aa1dfc",
+      "name": "Send WhatsApp Nudge",
+      "type": "n8n-nodes-base.whatsapp",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 18 * * 0"
+            }
+          ]
+        }
+      },
+      "id": "e0011c69-53cc-48d5-9e95-f4662d413c39",
+      "name": "Weekly Schedule \u2014 Sun 6 PM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "read",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Check-ins"
+      },
+      "id": "75a4b989-2147-4223-b547-18b0fc7999f2",
+      "name": "Read Weekly Trends",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "Summarise Siva's last 7 days of habit check-ins (mood, sleep, workouts) into a short weekly insights email: averages, best day, one gentle observation, one suggestion for next week. Supportive tone. No medical claims, diagnosis or treatment advice. Plain text, under 200 words."
+        },
+        "promptType": "define"
+      },
+      "id": "6d8274be-2a5b-493f-a374-45beb297fc2e",
+      "name": "Gemini Weekly Insights",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        480,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "emailType": "text",
+        "message": "={{ $json.output }}\n\n\u2014 Habit Coach (general wellness only, not medical advice)",
+        "operation": "send",
+        "options": {
+          "appendAttribution": false
+        },
+        "resource": "message",
+        "sendTo": "sivasaiboggu@gmail.com",
+        "subject": "=Your week in habits \u2014 {{ $now.toFormat('yyyy-MM-dd') }}"
+      },
+      "id": "ebfcfa43-6313-48a7-bf61-97cdfe415f85",
+      "name": "Send Weekly Insights Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        720,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [],
+          "value": {
+            "At": "={{ $now.toISO() }}",
+            "Workflow": "Habit Coach via WhatsApp",
+            "Result": "={{ $json.slip !== undefined ? ($json.slip ? 'nudge sent' : 'on track') : 'weekly email sent' }}",
+            "Detail": "={{ $json.reason || '' }}"
+          }
+        },
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "resource": "sheet",
+        "sheetName": "Execution Log"
+      },
+      "id": "c7d54256-98a5-43e8-aab4-5b1a376dddea",
+      "name": "Log Execution",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        960
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "d76cfa8a-0a13-4b41-a165-90388f144ed4",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1320
+      ]
+    },
+    {
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [],
+          "value": {
+            "At": "={{ $now.toISO() }}",
+            "Error": "={{ $json.error?.message || JSON.stringify($json.error || $json) }}",
+            "Node": "={{ $json.execution?.lastNodeExecuted || $json.node || 'unknown' }}",
+            "Workflow": "={{ $json.workflow?.name || 'unknown' }}"
+          }
+        },
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "resource": "sheet",
+        "sheetName": "Errors"
+      },
+      "id": "6d94859e-4d00-409f-b0ca-f0064c2a3075",
+      "name": "Log Error to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        1320
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "operation": "sendMessage",
+        "text": "=n8n workflow error. Check the Errors sheet.\nNode: {{ $json.execution?.lastNodeExecuted || 'unknown' }}\nError: {{ $json.error?.message || 'see Errors sheet' }}"
+      },
+      "id": "cdc682ee-f86e-4558-84b3-4db221e5c71d",
+      "name": "Notify Error via Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        1320
+      ]
+    }
+  ],
+  "connections": {
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "index": 0,
+            "node": "Gemini Coach \u2014 Write Check-in",
+            "type": "ai_languageModel"
+          },
+          {
+            "index": 0,
+            "node": "Gemini Parse Reply",
+            "type": "ai_languageModel"
+          },
+          {
+            "index": 0,
+            "node": "Gemini Weekly Insights",
+            "type": "ai_languageModel"
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Read Habits Sheet",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Daily Schedule \u2014 7 AM": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Read Habits Sheet",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Read Habits Sheet": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Gemini Coach \u2014 Write Check-in",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Gemini Coach \u2014 Write Check-in": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Send WhatsApp Check-in",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "WhatsApp Trigger \u2014 Reply": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Gemini Parse Reply",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Gemini Parse Reply": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Store Check-in",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Store Check-in": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Detect Slipping Pattern",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Detect Slipping Pattern": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Pattern Slipping?",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Pattern Slipping?": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Send WhatsApp Nudge",
+            "type": "main"
+          }
+        ],
+        [
+          {
+            "index": 0,
+            "node": "Log Execution",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp Nudge": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Log Execution",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Weekly Schedule \u2014 Sun 6 PM": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Read Weekly Trends",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Read Weekly Trends": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Gemini Weekly Insights",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Gemini Weekly Insights": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Send Weekly Insights Email",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Send Weekly Insights Email": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Log Execution",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Log Error to Sheet",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Log Error to Sheet": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Notify Error via Telegram",
+            "type": "main"
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

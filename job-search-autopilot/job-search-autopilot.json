@@ -1,0 +1,1026 @@
+{
+  "active": false,
+  "connections": {
+    "Apollo Email Lookup": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Normalise Contact",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Board Sources": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Fetch Board Pages",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Dedupe New Roles": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Split In Batches",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Download Resume PDF": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Send Cold Mail",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Draft Follow-up": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Log Follow-up Draft",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Log Error",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Extract Reply Info": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Is a Reply?",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Fetch Board Pages": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Parse & Filter Roles",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Find No-Reply (Day 4-5)": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Draft Follow-up",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Extract Reply Info",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "index": 0,
+            "node": "Research Company",
+            "type": "ai_languageModel"
+          }
+        ]
+      ]
+    },
+    "Is a Reply?": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Log Reply",
+            "type": "main"
+          }
+        ],
+        []
+      ]
+    },
+    "Log Error": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Notify Siva (Error)",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Log Needs Verification": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Split In Batches",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Log Reply": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Notify Siva (Reply)",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Log Send": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Wait 5 Minutes",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Board Sources",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Normalise Contact": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Verified Email?",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Parse & Filter Roles": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Read Applied Log",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Parse Research Output": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Apollo Email Lookup",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Read Applied Log": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Dedupe New Roles",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Read Sent Log": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Find No-Reply (Day 4-5)",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Research Company": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Parse Research Output",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Board Sources",
+            "type": "main"
+          },
+          {
+            "index": 0,
+            "node": "Read Sent Log",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Send Cold Mail": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Log Send",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Split In Batches": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Research Company",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Verified Email?": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Download Resume PDF",
+            "type": "main"
+          }
+        ],
+        [
+          {
+            "index": 0,
+            "node": "Log Needs Verification",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Wait 5 Minutes": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Split In Batches",
+            "type": "main"
+          }
+        ]
+      ]
+    }
+  },
+  "name": "Job Search Autopilot \u2014 Siva",
+  "nodes": [
+    {
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "parameters": {},
+      "position": [
+        0,
+        0
+      ],
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1
+    },
+    {
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "notes": "Runs 09:15 and 19:00 IST every day. Second output feeds the follow-up branch (Read Sent Log).",
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "expression": "15 9,19 * * *",
+              "field": "cronExpression"
+            }
+          ]
+        },
+        "timezone": "Asia/Kolkata"
+      },
+      "position": [
+        0,
+        240
+      ],
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2
+    },
+    {
+      "id": "board-sources",
+      "name": "Board Sources",
+      "parameters": {
+        "jsCode": "const boards = [\n  { board: 'Wellfound',  searchUrl: 'https://wellfound.com/jobs?query=AI%20intern' },\n  { board: 'Built In',   searchUrl: 'https://builtin.com/jobs?search=AI%20intern' },\n  { board: 'Shine',      searchUrl: 'https://www.shine.com/job-search/ai-intern-jobs' },\n  { board: 'Jobfound',   searchUrl: 'https://jobfound.app/jobs?search=AI' },\n  { board: 'Himalayas',  searchUrl: 'https://himalayas.app/jobs/ai' },\n  { board: 'Cutshort',   searchUrl: 'https://cutshort.io/jobs/ai-intern-jobs' },\n  { board: 'HiringCafe', searchUrl: 'https://hiring.cafe/jobs?search=AI' },\n  { board: 'LinkedIn Jobs', searchUrl: 'https://www.linkedin.com/jobs/search/?keywords=AI%20intern' }\n];\n// NEVER Internshala \u2014 deliberately not in this list.\nreturn boards.map(b => ({ json: b }));"
+      },
+      "position": [
+        240,
+        120
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+    {
+      "id": "fetch-board-pages",
+      "name": "Fetch Board Pages",
+      "notes": "One request per board. Boards that block scraping return an error here \u2014 the Error Trigger logs it and the run continues with the next board.",
+      "parameters": {
+        "method": "GET",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 20000
+        },
+        "url": "={{ $json.searchUrl }}"
+      },
+      "position": [
+        460,
+        120
+      ],
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2
+    },
+    {
+      "id": "parse-filter-roles",
+      "name": "Parse & Filter Roles",
+      "parameters": {
+        "jsCode": "// Parse each board page. Tries JSON first, then falls back to link scraping.\n// Filters: fitting role keywords + paid only. Never invents a role.\nconst FIT = /ai agent|ai engineer|software developer|machine learning|gen ?ai|llm|agentic/i;\nconst UNPAID = /unpaid|no stipend|volunteer/i;\nconst out = [];\nfor (const item of $input.all()) {\n  const board = item.json.board || 'unknown';\n  const raw = typeof item.json.data === 'string' ? item.json.data : JSON.stringify(item.json.data || item.json);\n  let roles = [];\n  try {\n    const parsed = JSON.parse(raw);\n    const arr = Array.isArray(parsed) ? parsed : (parsed.jobs || parsed.results || parsed.data || []);\n    roles = arr.map(r => ({ title: r.title || r.name || '', company: r.company || r.companyName || '', url: r.url || r.link || '', stipend: r.stipend || r.salary || '' }));\n  } catch (e) {\n    const links = [...raw.matchAll(/<a[^>]+href=\"([^\"]+)\"[^>]*>([^<]{5,120})<\\/a>/g)];\n    roles = links.map(m => ({ title: m[2].trim(), company: '', url: m[1], stipend: '' }));\n  }\n  for (const r of roles) {\n    if (!FIT.test(r.title)) continue;\n    if (UNPAID.test(r.title + ' ' + (r.stipend || ''))) continue;\n    out.push({ json: { board, title: r.title, company: r.company || 'unknown', url: r.url, stipend: r.stipend || '' } });\n  }\n}\nreturn out;"
+      },
+      "position": [
+        680,
+        120
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+    {
+      "id": "read-applied-log",
+      "name": "Read Applied Log",
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "read",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Applied Log"
+      },
+      "position": [
+        900,
+        120
+      ],
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2
+    },
+    {
+      "id": "dedupe-new-roles",
+      "name": "Dedupe New Roles",
+      "parameters": {
+        "jsCode": "// Dedupe new roles against the Applied Log sheet (company + role title).\n// Reads the parsed roles from the earlier node, not from this node's input.\nconst parsed = $('Parse & Filter Roles').all().map(i => i.json);\nconst applied = new Set($input.all().map(i => ((i.json.Company || i.json.company || '') + '|' + (i.json.Role || i.json.role || '')).toLowerCase()));\nconst fresh = parsed.filter(r => !applied.has(((r.company || '') + '|' + (r.title || '')).toLowerCase()));\nreturn fresh.map(r => ({ json: r }));"
+      },
+      "position": [
+        1120,
+        120
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+    {
+      "id": "split-in-batches",
+      "name": "Split In Batches",
+      "notes": "One company at a time \u2014 this is what enforces the 5-minute gap between sends.",
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "position": [
+        1340,
+        120
+      ],
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3
+    },
+    {
+      "id": "research-company",
+      "name": "Research Company",
+      "parameters": {
+        "options": {
+          "systemMessage": "You are Siva's research assistant. Siva is Sivasai Boggu, BTech Computer Science at IIIT Kottayam (2023-2027), CGPA 7.73, currently a Software Developer Intern at Whispry (MERN, Rs 20,000/month). He builds AI agents with LangGraph/LangChain, RAG and FastAPI (projects: HireMind AI, SecureFlow, AuditMind, AI SDR Agent, Voice Receptionist). Email sivasaiboggu@gmail.com, phone +91 9573719115, based in Gooty, Andhra Pradesh, available immediately, looking for PAID AI agent / AI engineer / software developer intern roles only. Never invent facts, emails, people or company claims. If unsure, say so."
+        },
+        "promptType": "define",
+        "text": "=Research the company {{ $json.company }} (role: {{ $json.title }}, board: {{ $json.board }}, listing: {{ $json.url }}). Find what the company actually does and one real, specific hook from its own work. Then write a short personalised cold mail from Siva. Reply with ONLY this JSON, no other text: {\"company\": \"...\", \"founderFirstName\": \"...\", \"founderLastName\": \"...\", \"hook\": \"...\", \"subject\": \"...\", \"body\": \"...\"}. If you cannot find a real founder name, use empty strings for the name fields \u2014 never invent a person. The mail body must be honest, under 150 words, and end asking for a 15-minute call."
+      },
+      "position": [
+        1560,
+        120
+      ],
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8
+    },
+    {
+      "id": "gemini-model",
+      "name": "Google Gemini Chat Model",
+      "notes": "Free-tier Gemini model. Connect your Google Gemini API credential here.",
+      "parameters": {
+        "modelName": "models/gemini-2.0-flash",
+        "options": {}
+      },
+      "position": [
+        1560,
+        320
+      ],
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1
+    },
+    {
+      "id": "parse-research-output",
+      "name": "Parse Research Output",
+      "parameters": {
+        "jsCode": "// Extract the agent's JSON. If it is not valid JSON, keep the company/role\n// and leave contact fields empty so the email gate routes it to verification.\nconst raw = $input.first().json.output || $input.first().json.text || '';\nlet parsed = {};\ntry { parsed = JSON.parse(raw); } catch (e) {\n  const m = String(raw).match(/\\{[\\s\\S]*\\}/);\n  try { parsed = m ? JSON.parse(m[0]) : {}; } catch (e2) { parsed = {}; }\n}\nconst prev = $('Split In Batches').first().json;\nreturn [{ json: {\n  board: prev.board, title: prev.title, url: prev.url, stipend: prev.stipend,\n  company: parsed.company || prev.company,\n  founderFirstName: parsed.founderFirstName || '',\n  founderLastName: parsed.founderLastName || '',\n  hook: parsed.hook || '',\n  subject: parsed.subject || ('Applying for ' + prev.title + ' \u2014 Sivasai Boggu'),\n  body: parsed.body || ''\n} }];"
+      },
+      "position": [
+        1780,
+        120
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+    {
+      "id": "apollo-email-lookup",
+      "name": "Apollo Email Lookup",
+      "notes": "Replace YOUR_APOLLO_API_KEY with a real Apollo key. If the founder name is empty this returns no match \u2014 by design, that routes to Needs Verification, never to a guessed email.",
+      "parameters": {
+        "jsonBody": "={\n  \"first_name\": \"{{ $json.founderFirstName }}\",\n  \"last_name\": \"{{ $json.founderLastName }}\",\n  \"organization_name\": \"{{ $json.company }}\"\n}",
+        "method": "POST",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 15000
+        },
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "api_key",
+              "value": "YOUR_APOLLO_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "sendQuery": true,
+        "specifyBody": "json",
+        "url": "https://api.apollo.io/api/v1/people/match"
+      },
+      "position": [
+        2000,
+        120
+      ],
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2
+    },
+    {
+      "id": "normalise-contact",
+      "name": "Normalise Contact",
+      "parameters": {
+        "jsCode": "// Normalise the Apollo result and carry the researched mail forward.\n// Apollo returns person.email and person.email_status ('verified' when confirmed).\nconst prev = $('Parse Research Output').first().json;\nconst person = $input.first().json.person || $input.first().json || {};\nconst email = person.email || '';\nconst verified = person.email_status === 'verified';\nreturn [{ json: { ...prev, email, verified } }];"
+      },
+      "position": [
+        2220,
+        120
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+    {
+      "id": "verified-email-gate",
+      "name": "Verified Email?",
+      "notes": "TRUE only for a verified email that is not on the bounce list. Everything else goes to Needs Verification and is NEVER mailed.",
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "verified-email-check",
+              "leftValue": "={{ $json.email && $json.email.includes('@') && $json.verified === true && !['jobs@iion.io', 'rthornton@eteaminc.com', 'careers@hackshade.in', 'careers@techsima.com'].includes($json.email.toLowerCase()) }}",
+              "operator": {
+                "name": "filter.operator.boolean.true",
+                "operation": "true",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      },
+      "position": [
+        2440,
+        120
+      ],
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2
+    },
+    {
+      "id": "download-resume-pdf",
+      "name": "Download Resume PDF",
+      "notes": "Upload Sivasai_Boggu_Resume.pdf to Google Drive and paste its file ID here. The file downloads as binary 'data' for the Gmail attachment.",
+      "parameters": {
+        "fileId": "YOUR_RESUME_FILE_ID",
+        "operation": "download",
+        "options": {},
+        "resource": "file"
+      },
+      "position": [
+        2660,
+        40
+      ],
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3
+    },
+    {
+      "id": "send-cold-mail",
+      "name": "Send Cold Mail",
+      "parameters": {
+        "emailType": "text",
+        "message": "={{ $json.body }}\n\n\u2014\nSivasai Boggu\nBTech CS, IIIT Kottayam (2023-2027) | CGPA 7.73\nSoftware Developer Intern, Whispry\nsivasaiboggu@gmail.com | +91 9573719115 | Gooty, Andhra Pradesh\nAvailable immediately",
+        "operation": "send",
+        "options": {
+          "appendAttribution": false,
+          "attachmentsUi": {
+            "attachmentsBinary": [
+              {
+                "property": "data"
+              }
+            ]
+          },
+          "sendTo": ""
+        },
+        "resource": "message",
+        "sendTo": "={{ $json.email }}",
+        "subject": "={{ $json.subject }}"
+      },
+      "position": [
+        2880,
+        40
+      ],
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1
+    },
+    {
+      "id": "log-send",
+      "name": "Log Send",
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Email"
+          ],
+          "schema": [],
+          "value": {
+            "Board": "={{ $json.board }}",
+            "Company": "={{ $json.company }}",
+            "Email": "={{ $json.email }}",
+            "Gmail Message ID": "={{ $json.id }}",
+            "Person": "={{ $json.founderFirstName }} {{ $json.founderLastName }}",
+            "Role": "={{ $json.title }}",
+            "Sent At": "={{ $now.toISO() }}",
+            "Subject": "={{ $json.subject }}"
+          }
+        },
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Sends"
+      },
+      "position": [
+        3100,
+        40
+      ],
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2
+    },
+    {
+      "id": "wait-5-minutes",
+      "name": "Wait 5 Minutes",
+      "notes": "5-minute gap between sends. Then loops back to Split In Batches for the next company.",
+      "parameters": {
+        "amount": 5,
+        "unit": "minutes"
+      },
+      "position": [
+        3320,
+        40
+      ],
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1
+    },
+    {
+      "id": "log-needs-verification",
+      "name": "Log Needs Verification",
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Company"
+          ],
+          "schema": [],
+          "value": {
+            "Board": "={{ $json.board }}",
+            "Company": "={{ $json.company }}",
+            "Found At": "={{ $now.toISO() }}",
+            "Listing URL": "={{ $json.url }}",
+            "Reason": "={{ $json.email ? 'Email not verified by Apollo' : 'No verified email found \u2014 do not guess' }}",
+            "Role": "={{ $json.title }}"
+          }
+        },
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Needs Verification"
+      },
+      "position": [
+        2660,
+        260
+      ],
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2
+    },
+    {
+      "id": "gmail-trigger",
+      "name": "Gmail Trigger",
+      "notes": "Watches the inbox for replies to sent cold mails.",
+      "parameters": {
+        "filters": {},
+        "options": {},
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        }
+      },
+      "position": [
+        0,
+        560
+      ],
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2
+    },
+    {
+      "id": "extract-reply-info",
+      "name": "Extract Reply Info",
+      "parameters": {
+        "jsCode": "// Normalise a Gmail Trigger message into reply fields.\nconst m = $input.first().json;\nconst headers = {};\nfor (const h of (m.payload && m.payload.headers) || []) headers[h.name.toLowerCase()] = h.value;\nreturn [{ json: {\n  threadId: m.threadId || '',\n  messageId: m.id || '',\n  from: headers.from || '',\n  subject: headers.subject || '',\n  snippet: m.snippet || '',\n  date: headers.date || ''\n} }];"
+      },
+      "position": [
+        240,
+        560
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+    {
+      "id": "is-a-reply",
+      "name": "Is a Reply?",
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "is-reply-check",
+              "leftValue": "={{ $json.subject.startsWith('Re:') }}",
+              "operator": {
+                "name": "filter.operator.boolean.true",
+                "operation": "true",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      },
+      "position": [
+        480,
+        560
+      ],
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2
+    },
+    {
+      "id": "log-reply",
+      "name": "Log Reply",
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Thread ID"
+          ],
+          "schema": [],
+          "value": {
+            "From": "={{ $json.from }}",
+            "Received At": "={{ $now.toISO() }}",
+            "Snippet": "={{ $json.snippet }}",
+            "Subject": "={{ $json.subject }}",
+            "Thread ID": "={{ $json.threadId }}"
+          }
+        },
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Replies"
+      },
+      "position": [
+        720,
+        480
+      ],
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2
+    },
+    {
+      "id": "notify-siva-reply",
+      "name": "Notify Siva (Reply)",
+      "parameters": {
+        "emailType": "text",
+        "message": "=You got a reply!\n\nFrom: {{ $json.from }}\nSubject: {{ $json.subject }}\n\n{{ $json.snippet }}\n\nLogged in the Replies sheet. Reply soon \u2014 this is a warm lead.",
+        "operation": "send",
+        "options": {
+          "appendAttribution": false
+        },
+        "resource": "message",
+        "sendTo": "sivasaiboggu@gmail.com",
+        "subject": "=Reply to your cold mail: {{ $json.subject }}"
+      },
+      "position": [
+        960,
+        480
+      ],
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1
+    },
+    {
+      "id": "read-sent-log",
+      "name": "Read Sent Log",
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "read",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Sends"
+      },
+      "position": [
+        480,
+        760
+      ],
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2
+    },
+    {
+      "id": "find-no-reply",
+      "name": "Find No-Reply (Day 4-5)",
+      "parameters": {
+        "jsCode": "// Find sent mails 4-5 days old with no reply logged in the Replies sheet.\n// Reads the Replies sheet via $('Log Reply') only when it has run; otherwise\n// treats every sent mail in the window as unanswered and drafts a follow-up.\nconst now = Date.now();\nconst DAY = 24 * 60 * 60 * 1000;\nlet repliedThreads = new Set();\ntry { repliedThreads = new Set($('Log Reply').all().map(i => i.json['Thread ID'])); } catch (e) { repliedThreads = new Set(); }\nconst due = [];\nfor (const item of $input.all()) {\n  const sentAt = new Date(item.json['Sent At'] || item.json.sentAt || 0).getTime();\n  const ageDays = (now - sentAt) / DAY;\n  if (ageDays >= 4 && ageDays <= 5 && !repliedThreads.has(item.json['Thread ID'])) {\n    due.push({ json: {\n      company: item.json.Company, email: item.json.Email,\n      role: item.json.Role, subject: 'Re: ' + (item.json.Subject || ''),\n      sentAt: item.json['Sent At']\n    } });\n  }\n}\nreturn due;"
+      },
+      "position": [
+        720,
+        760
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+    {
+      "id": "draft-follow-up",
+      "name": "Draft Follow-up",
+      "notes": "Creates a DRAFT only \u2014 it never sends a follow-up by itself. Siva reviews and sends.",
+      "parameters": {
+        "emailType": "text",
+        "message": "=Hi,\n\nJust floating this back up \u2014 I wrote last week about the {{ $json.role }} role at {{ $json.company }}. I'm Sivasai Boggu (BTech CS, IIIT Kottayam, CGPA 7.73), currently building AI agents with LangGraph at Whispry, and I'd love a 15-minute chat about how I could help.\n\nHappy to share my resume again if useful.\n\nBest,\nSivasai Boggu | sivasaiboggu@gmail.com | +91 9573719115",
+        "operation": "create",
+        "options": {},
+        "resource": "draft",
+        "sendTo": "={{ $json.email }}",
+        "subject": "={{ $json.subject }}"
+      },
+      "position": [
+        960,
+        760
+      ],
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1
+    },
+    {
+      "id": "log-follow-up-draft",
+      "name": "Log Follow-up Draft",
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Email"
+          ],
+          "schema": [],
+          "value": {
+            "Company": "={{ $json.company }}",
+            "Drafted At": "={{ $now.toISO() }}",
+            "Email": "={{ $json.email }}",
+            "Role": "={{ $json.role }}",
+            "Status": "draft \u2014 awaiting Siva review"
+          }
+        },
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Follow-ups"
+      },
+      "position": [
+        1200,
+        760
+      ],
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2
+    },
+    {
+      "id": "error-trigger",
+      "name": "Error Trigger",
+      "notes": "Catches failures from any node in this workflow.",
+      "parameters": {},
+      "position": [
+        0,
+        980
+      ],
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1
+    },
+    {
+      "id": "log-error",
+      "name": "Log Error",
+      "parameters": {
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "At"
+          ],
+          "schema": [],
+          "value": {
+            "At": "={{ $now.toISO() }}",
+            "Error": "={{ $json.error?.message || JSON.stringify($json.error || $json) }}",
+            "Node": "={{ $json.execution?.lastNodeExecuted || $json.node || 'unknown' }}",
+            "Workflow": "Job Search Autopilot \u2014 Siva"
+          }
+        },
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Errors"
+      },
+      "position": [
+        240,
+        980
+      ],
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2
+    },
+    {
+      "id": "notify-siva-error",
+      "name": "Notify Siva (Error)",
+      "parameters": {
+        "emailType": "text",
+        "message": "=The Job Search Autopilot hit an error and logged it to the Errors sheet.\n\nNode: {{ $json.execution?.lastNodeExecuted || 'unknown' }}\nError: {{ $json.error?.message || 'see Errors sheet' }}\n\nThe run continued with the next company where possible.",
+        "operation": "send",
+        "options": {
+          "appendAttribution": false
+        },
+        "resource": "message",
+        "sendTo": "sivasaiboggu@gmail.com",
+        "subject": "=Job Search Autopilot error \u2014 {{ $json.execution?.lastNodeExecuted || 'workflow' }}"
+      },
+      "position": [
+        480,
+        980
+      ],
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1
+    },
+    {
+      "id": "sticky-setup",
+      "name": "Sticky Note \u2014 Setup",
+      "parameters": {
+        "color": 4,
+        "content": "## Job Search Autopilot \u2014 setup\n1. Create the Google Sheet (tabs: Applied Log, Sends, Needs Verification, Replies, Follow-ups, Errors) \u2014 see SETUP.md.\n2. Connect credentials: Gmail OAuth2, Google Sheets OAuth2, Google Gemini API (+ Google Drive for the resume).\n3. Paste your Sheet ID, resume file ID and Apollo API key where marked YOUR_*.\n4. Click Execute with Manual Trigger first. Only then activate the schedule.",
+        "height": 260,
+        "width": 420
+      },
+      "position": [
+        0,
+        -320
+      ],
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1
+    },
+    {
+      "id": "sticky-rules",
+      "name": "Sticky Note \u2014 Rules",
+      "parameters": {
+        "color": 5,
+        "content": "## Hard rules (do not remove)\n- Paid roles only. NEVER Internshala.\n- NEVER mail an unverified email \u2014 unverified contacts go to Needs Verification.\n- NEVER resend to bounced addresses: jobs@iion.io, rthornton@eteaminc.com, careers@hackshade.in, careers@techsima.com.\n- 5-minute gap between sends (Wait node). Follow-ups are drafts only.",
+        "height": 220,
+        "width": 420
+      },
+      "position": [
+        480,
+        -320
+      ],
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## Credentials \u2014 read before importing\nJob Search Autopilot \u2014 credentials: none are set in this file. On import n8n shows 'No credential set' \u2014 connect your own Gmail OAuth2, Google Sheets OAuth2, Google Gemini API and Google Drive OAuth2. (Placeholder credential references that made n8n refuse to save on import were removed.)\nGoogle Sheet ID and Drive resume file ID: replace YOUR_* placeholders in the nodes.",
+        "height": 220,
+        "width": 420,
+        "color": 4
+      },
+      "id": "0673b662-b1cc-472f-b102-1346870624b6",
+      "name": "Sticky Note \u2014 Credentials",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -580
+      ]
+    }
+  ],
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

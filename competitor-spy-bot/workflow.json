@@ -1,0 +1,735 @@
+{
+  "name": "Competitor Spy Bot \u2014 Siva",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "Competitor Spy Bot \u2014 Siva\nMondays 09:00: scrape each competitor's pricing, blog and jobs pages, diff vs last snapshot, Gemini summarises what changed and why it matters. Slack digest only after human approval.",
+        "height": 120,
+        "width": 480
+      },
+      "id": "eca0629a-0bb2-494c-b41f-e125dbba76b9",
+      "name": "Sticky Note \u2014 Flow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "MEMORY LAYER (no live DB): the Competitor Snapshots sheet IS the memory \u2014 one row per competitor per week (pricing_text, blog_latest, jobs_latest, hash). Diff node compares the new fetch hash vs the last row. A Postgres/vector store can replace the sheet later; do not invent a live DB connection.",
+        "height": 120,
+        "width": 480
+      },
+      "id": "0a0d7b6d-4d15-45e4-8b5f-143fb864f3f4",
+      "name": "Sticky Note \u2014 Memory Layer",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "CREDENTIALS NEEDED (pick/create on import \u2014 no credential is set in this file):\n- Google Sheets (OAuth2) \u2014 Get Competitor List, Save Snapshot, Log Error to Sheet, Log Execution\n- Slack API \u2014 Send Approval Digest, Send Monday Digest, Notify on Error\n- Google Gemini (PaLM) API \u2014 Gemini Chat Model",
+        "height": 120,
+        "width": 480
+      },
+      "id": "59b095c8-c114-4871-93ce-09c4b83f4878",
+      "name": "Sticky Note \u2014 Credentials",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "bfc0a5c6-923c-42b3-80d9-fa5dcdbf5977",
+      "name": "Monday 9am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": "YOUR_COMPETITOR_SHEET_ID",
+        "sheetName": "Competitors"
+      },
+      "id": "f1b68e14-c709-49aa-a04e-5c5b50198b31",
+      "name": "Get Competitor List",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "f5a7cd27-5225-424d-8c48-3c94b64c1777",
+      "name": "Split Competitors",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.pricing_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "id": "f742c76c-b82d-4e4b-b9e9-14c2f9b9ce70",
+      "name": "Fetch Pricing Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.blog_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "id": "d3e91123-7f76-4204-80b0-4b21519365f1",
+      "name": "Fetch Blog Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.jobs_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "id": "4849309e-e338-4645-bf5a-72c01b93e88b",
+      "name": "Fetch Jobs Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Compare fetched page text hash vs last snapshot row (passed in via $json.last_hash).\nconst text = JSON.stringify($json); let h = 0; for (const c of text) h = (h * 31 + c.charCodeAt(0)) >>> 0;\nreturn [{ json: { competitor: $json.competitor_name, new_hash: String(h), last_hash: $json.last_hash || '', changed: String(h) !== String($json.last_hash || ''), pricing_text: ($json.pricing_text || '').slice(0, 4000), blog_latest: ($json.blog_latest || '').slice(0, 2000), jobs_latest: ($json.jobs_latest || '').slice(0, 2000) } }];"
+      },
+      "id": "bc2dd5b1-42d8-412f-93ce-57473ab3243f",
+      "name": "Diff vs Last Snapshot",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "model": "gemini-2.0-flash",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "89c4876b-a95c-4504-a149-2e857bda4ebd",
+      "name": "Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1680,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Summarise what changed for {{ $json.competitor }} (changed={{ $json.changed }}). Pricing: {{ $json.pricing_text }}. Blog: {{ $json.blog_latest }}. Jobs: {{ $json.jobs_latest }}. Explain what changed and why it matters to Siva (AI SDR / LangGraph agent builder). No invented prices \u2014 only report what is in the fetched text.",
+        "options": {
+          "systemMessage": "You summarise competitor changes from fetched page text only. Never invent a price, feature or job. If nothing changed, say so in one line."
+        }
+      },
+      "id": "dfd9ea6c-1d7c-4341-890a-65fe69f8d1af",
+      "name": "Summarise Changes (Gemini Agent)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        1680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_COMPETITOR_SHEET_ID",
+        "sheetName": "Snapshots",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "week": "={{ $now.toISO() }}",
+            "competitor": "={{ $json.competitor }}",
+            "new_hash": "={{ $json.new_hash }}",
+            "changed": "={{ $json.changed }}",
+            "summary": "={{ $json.output }}"
+          }
+        }
+      },
+      "id": "8a7bde5c-2392-47d5-9309-bcf4cbe19985",
+      "name": "Save Snapshot",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        1920,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.changed }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true
+      },
+      "id": "995061ae-c040-4c78-a482-3c73d122ff6b",
+      "name": "Changed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2160,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "postMessage",
+        "channel": "YOUR_SLACK_CHANNEL_ID",
+        "text": "=Competitor changes draft for {{ $json.competitor }}:\n{{ $json.output }}\nReply APPROVE to send the Monday digest, or REJECT to skip. Nothing is posted publicly until approved.",
+        "otherOptions": {}
+      },
+      "id": "c3b52889-8b78-4f9e-9371-ad6a07f8ed5c",
+      "name": "Send Approval Digest",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 4,
+        "unit": "hours"
+      },
+      "id": "269b5287-91cb-418f-85d2-2e26571d85ad",
+      "name": "Wait for Approval",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2640,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.approved }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true
+      },
+      "id": "30f30404-c893-4894-90c7-48b2ccfc5268",
+      "name": "Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2880,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "postMessage",
+        "channel": "YOUR_SLACK_CHANNEL_ID",
+        "text": "=Monday competitor digest (approved):\n{{ $json.output }}",
+        "otherOptions": {}
+      },
+      "id": "f191faab-cf27-4d61-bce6-a0825b2b3d0c",
+      "name": "Send Monday Digest",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e88fc20e",
+              "name": "status",
+              "value": "skipped \u2014 not approved",
+              "type": "string"
+            },
+            {
+              "id": "85770d85",
+              "name": "reason",
+              "value": "human approval not given",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7eadc049-8fa5-4382-8feb-7d5b07d27efc",
+      "name": "Log Skipped",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "055fc66c",
+              "name": "status",
+              "value": "no change this week",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d28aeec8-f0b4-4b3c-8561-78459fe13cff",
+      "name": "Log No Change",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2400,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "options": {}
+      },
+      "id": "ad9283c8-f5aa-4f7b-b088-aa9948691727",
+      "name": "Merge Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        3360,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_EXECUTION_LOG_SHEET_ID",
+        "sheetName": "Log",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow": "Competitor Spy Bot",
+            "status": "={{ $json.status || 'done' }}",
+            "detail": "={{ $json.output || $json.reason || '' }}"
+          }
+        }
+      },
+      "id": "645c0316-50d1-4de0-b1f6-204b5580c44d",
+      "name": "Log Execution",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        3600,
+        180
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "5f5a8623-e623-4ff4-90ce-6d3dd2de704c",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_ERROR_LOG_SHEET_ID",
+        "sheetName": "Errors",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow": "={{ $json.workflow?.name }}",
+            "node": "={{ $json.execution?.lastNodeExecuted }}",
+            "error": "={{ $json.execution?.error }}",
+            "execution_id": "={{ $json.execution?.id }}"
+          }
+        }
+      },
+      "id": "7493850b-213f-4e16-8549-82f25729a4bd",
+      "name": "Log Error to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        240,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "postMessage",
+        "channel": "YOUR_SLACK_CHANNEL_ID",
+        "text": "=Competitor Spy Bot FAILED: {{ $json.error }} (execution {{ $json.execution_id }})",
+        "otherOptions": {}
+      },
+      "id": "5678311e-a04a-43fb-8882-a2f485756bf8",
+      "name": "Notify on Error (Slack)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [
+        480,
+        700
+      ]
+    }
+  ],
+  "connections": {
+    "Monday 9am": {
+      "main": [
+        [
+          {
+            "node": "Get Competitor List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Competitor List": {
+      "main": [
+        [
+          {
+            "node": "Split Competitors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Competitors": {
+      "main": [
+        [
+          {
+            "node": "Fetch Pricing Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Pricing Page": {
+      "main": [
+        [
+          {
+            "node": "Fetch Blog Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Blog Page": {
+      "main": [
+        [
+          {
+            "node": "Fetch Jobs Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Jobs Page": {
+      "main": [
+        [
+          {
+            "node": "Diff vs Last Snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Diff vs Last Snapshot": {
+      "main": [
+        [
+          {
+            "node": "Summarise Changes (Gemini Agent)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarise Changes (Gemini Agent)": {
+      "main": [
+        [
+          {
+            "node": "Save Snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Snapshot": {
+      "main": [
+        [
+          {
+            "node": "Changed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Approval Digest": {
+      "main": [
+        [
+          {
+            "node": "Wait for Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Approval": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Monday Digest": {
+      "main": [
+        [
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Skipped": {
+      "main": [
+        [
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log No Change": {
+      "main": [
+        [
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Results": {
+      "main": [
+        [
+          {
+            "node": "Log Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Summarise Changes (Gemini Agent)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Changed?": {
+      "main": [
+        [
+          {
+            "node": "Send Approval Digest",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log No Change",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Send Monday Digest",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Log Error to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Error to Sheet": {
+      "main": [
+        [
+          {
+            "node": "Notify on Error (Slack)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

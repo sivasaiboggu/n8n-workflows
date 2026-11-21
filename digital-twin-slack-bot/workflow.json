@@ -1,0 +1,563 @@
+{
+  "name": "Digital Twin Slack Bot \u2014 Siva",
+  "nodes": [
+    {
+      "id": "75342a72-51be-40a9-834c-caa7dab95c00",
+      "name": "Sticky Note \u2014 Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -320
+      ],
+      "parameters": {
+        "color": 4,
+        "content": "## Digital Twin Slack Bot \u2014 setup\n1. Create the Google Sheet (tabs: Twin Memory Index, Pending Approvals, Execution Log, Errors) \u2014 see SETUP.md.\n2. Connect credentials: Slack, Google Sheets, Google Gemini API, Telegram (error alerts).\n3. Paste your Sheet ID and Slack channel/user IDs where marked YOUR_*.\n4. Test with Manual Trigger first. Only then activate the Slack Trigger.",
+        "height": 260,
+        "width": 420
+      }
+    },
+    {
+      "id": "54670211-0cf1-4bbb-a5f8-3daaf1515943",
+      "name": "Sticky Note \u2014 Memory Layer",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        480,
+        -320
+      ],
+      "parameters": {
+        "color": 5,
+        "content": "## Memory layer (vector store)\nPast emails/docs/messages are embedded into a vector store OUTSIDE n8n.\nThe 'Memory Lookup (Placeholder)' Code node marks what would be retrieved\n(source title + snippet + score) and returns an empty retrieval list until\nthe store is connected. Do NOT invent a live DB connection or fake sources.\nWhen connected, replace that node with a real vector-store retriever.",
+        "height": 260,
+        "width": 420
+      }
+    },
+    {
+      "id": "e670bc24-be7d-4dab-93eb-8a9753c388c3",
+      "name": "Sticky Note \u2014 Rules",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        960,
+        -320
+      ],
+      "parameters": {
+        "color": 6,
+        "content": "## Hard rules (do not remove)\n- The bot NEVER replies to a teammate with a commitment (promise, deadline,\n  price, agreement) without Siva approving first.\n- Low confidence (< 0.70) always escalates to Siva instead of answering.\n- Sources shown must come from the memory lookup \u2014 never invented.",
+        "height": 260,
+        "width": 420
+      }
+    },
+    {
+      "id": "56194ccf-90c0-4c30-854b-e7fcd3e133d4",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "223c4dd4-6217-41c5-888c-7b6447982e39",
+      "name": "Slack Trigger",
+      "type": "n8n-nodes-base.slackTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        240
+      ],
+      "parameters": {
+        "channelId": "YOUR_SLACK_CHANNEL_ID",
+        "trigger": "message"
+      },
+      "notes": "Fires on every new message in YOUR_SLACK_CHANNEL_ID. Only messages that mention the bot or ask a question are answered \u2014 see Extract Question."
+    },
+    {
+      "id": "bcff7556-9cf4-4e83-b6d1-a3b5f2f6450c",
+      "name": "Extract Question",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        120
+      ],
+      "parameters": {
+        "jsCode": "// Normalise a Slack message event into a question for the twin.\nconst ev = $input.first().json.event || $input.first().json;\nconst text = (ev.text || '').trim();\nconst isQuestion = /\\?|\\b(how|what|when|why|can you|could you|please)\\b/i.test(text);\nreturn [{ json: { channel: ev.channel || 'YOUR_SLACK_CHANNEL_ID',\n  user: ev.user || '', threadTs: ev.thread_ts || ev.ts || '',\n  text, isQuestion, receivedAt: new Date().toISOString() } }];"
+      }
+    },
+    {
+      "id": "280100d4-40f2-4184-9773-36327b97f5df",
+      "name": "Is a Question?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        120
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "is-question",
+              "leftValue": "={{ $json.isQuestion }}",
+              "operator": {
+                "name": "filter.operator.boolean.true",
+                "operation": "true",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "10163f2f-2a40-480d-848c-a77b023fadce",
+      "name": "Memory Lookup (Placeholder)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        120
+      ],
+      "parameters": {
+        "jsCode": "// MEMORY LAYER PLACEHOLDER \u2014 no live vector DB is connected yet.\n// When Siva connects a vector store, replace this node with a real\n// retriever that returns [{source, snippet, score}] for $json.text.\n// Until then it returns an EMPTY retrieval list on purpose: the agent\n// must say it has no source instead of inventing one.\nreturn [{ json: { ...$input.first().json, retrieved: [],\n  memoryNote: 'No vector store connected yet \u2014 answer from general knowledge of Siva only, and say so.' } }];"
+      },
+      "notes": "Placeholder only. Replace with a real vector-store retriever node when Siva connects one. Never fake retrieved sources."
+    },
+    {
+      "id": "88d8ba18-d04e-410b-84ff-d426d1a969b9",
+      "name": "Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        720,
+        340
+      ],
+      "parameters": {
+        "modelName": "models/gemini-2.0-flash",
+        "options": {}
+      },
+      "notes": "Free-tier Gemini model. Connect your Google Gemini API credential here."
+    },
+    {
+      "id": "f767d19f-eda9-42cc-88b5-9739121bd90d",
+      "name": "Digital Twin Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        960,
+        120
+      ],
+      "parameters": {
+        "options": {
+          "systemMessage": "You are Siva's digital twin, answering teammates in Slack in Siva's voice: direct, fast, evidence-led, first person. Siva is Sivasai Boggu, BTech CS at IIIT Kottayam (2023-2027), CGPA 7.73, Software Developer Intern at Whispry (MERN, Rs 20,000/month). He builds AI agents with LangGraph/LangChain, RAG and FastAPI. Projects: AI SDR Agent, Voice Receptionist, HireMind AI, SecureFlow, AuditMind. Email sivasaiboggu@gmail.com, phone +91 9573719115, based in Gooty, Andhra Pradesh, available immediately. RULES: (1) Only use facts from the retrieved memory snippets provided; if the memory list is empty, say you do not have that in memory \u2014 never invent a source, quote, decision or commitment. (2) Never commit Siva to anything (a promise, deadline, price or agreement) \u2014 if the question asks for a commitment, set needsApproval to true. (3) Give a confidence score 0-1. Below 0.70, set needsEscalation to true. (4) Keep answers under 120 words unless the question needs more."
+        },
+        "promptType": "define",
+        "text": "=Question from teammate {{ $json.user }} in Slack: \"{{ $json.text }}\"\nRetrieved memory (may be empty): {{ JSON.stringify($json.retrieved) }}\n{{ $json.memoryNote }}\nReply with ONLY this JSON, no other text: {\"answer\": \"...\", \"confidence\": 0.0, \"sources\": [\"...\"], \"needsEscalation\": false, \"needsApproval\": false, \"reason\": \"...\"}"
+      },
+      "notes": "Answers in Siva's voice. Escalates on low confidence; flags commitments for approval."
+    },
+    {
+      "id": "f65cdd1d-2b84-47e4-85ef-e098c8a25866",
+      "name": "Parse Agent Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        120
+      ],
+      "parameters": {
+        "jsCode": "// Parse the agent JSON. On parse failure, force escalation \u2014 never guess.\nconst raw = $input.first().json.output || $input.first().json.text || '';\nconst prev = $('Extract Question').first().json;\nlet p = {};\ntry { p = JSON.parse(raw); } catch (e) {\n  const m = String(raw).match(/\\{[\\s\\S]*\\}/);\n  try { p = m ? JSON.parse(m[0]) : {}; } catch (e2) { p = {}; }\n}\nconst needsApproval = p.needsApproval === true ||\n  /\\b(I will|I'll|I promise|confirmed|agreed|deadline is|I can do that by)\\b/i.test(p.answer || '');\nreturn [{ json: { ...prev, answer: p.answer || '',\n  confidence: typeof p.confidence === 'number' ? p.confidence : 0,\n  sources: p.sources || [], reason: p.reason || '',\n  needsEscalation: p.needsEscalation === true || (typeof p.confidence === 'number' && p.confidence < 0.7),\n  needsApproval } }];"
+      }
+    },
+    {
+      "id": "65f23e10-2cd9-46d2-a6e4-0b5c1a2e1165",
+      "name": "Needs Approval or Escalation?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        120
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "or",
+          "conditions": [
+            {
+              "id": "esc",
+              "leftValue": "={{ $json.needsEscalation }}",
+              "operator": {
+                "name": "filter.operator.boolean.true",
+                "operation": "true",
+                "type": "boolean"
+              },
+              "rightValue": true
+            },
+            {
+              "id": "appr",
+              "leftValue": "={{ $json.needsApproval }}",
+              "operator": {
+                "name": "filter.operator.boolean.true",
+                "operation": "true",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      },
+      "notes": "TRUE = do NOT answer the teammate yet. Route to Siva for approval/escalation."
+    },
+    {
+      "id": "35b93a2e-5ded-4d07-8035-afb967d9bb98",
+      "name": "Escalate to Siva (Slack)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1680,
+        40
+      ],
+      "parameters": {
+        "channel": "YOUR_SIVA_SLACK_USER_ID",
+        "text": "=Digital Twin needs you :warning:\n\nTeammate <@{{ $json.user }}> asked: \"{{ $json.text }}\"\nDraft answer: {{ $json.answer }}\nConfidence: {{ $json.confidence }}\nReason: {{ $json.reason }}\n\nReply in the thread yourself, or tell the bot to send this draft \u2014 nothing was sent to the teammate.",
+        "otherOptions": {},
+        "resource": "message",
+        "operation": "postMessage"
+      },
+      "notes": "Human approval step. The teammate gets nothing until Siva acts.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "6fd0d1fc-b14e-410e-82f9-5f69b89aed30",
+      "name": "Log Pending Approval",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        40
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Pending Approvals",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Asked At"
+          ],
+          "schema": [],
+          "value": {
+            "Asked At": "={{ $now.toISO() }}",
+            "Channel": "={{ $json.channel }}",
+            "Question": "={{ $json.text }}",
+            "Draft Answer": "={{ $json.answer }}",
+            "Confidence": "={{ $json.confidence }}",
+            "Reason": "={{ $json.reason }}",
+            "Status": "awaiting Siva"
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "a83d863a-553c-4d67-9425-9d13a7c61acb",
+      "name": "Post Answer to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1680,
+        260
+      ],
+      "parameters": {
+        "channel": "={{ $json.channel }}",
+        "text": "={{ $json.answer }}\n\n_Sources: {{ $json.sources.length ? $json.sources.join(', ') : 'no stored source \u2014 answered from general context' }}_",
+        "otherOptions": {
+          "thread_ts": "={{ $json.threadTs }}"
+        },
+        "resource": "message",
+        "operation": "postMessage"
+      },
+      "notes": "Only reached when confidence is high AND no commitment is involved.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "dfaced38-c949-4378-a927-cb09638f331c",
+      "name": "Log Execution",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        260
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Execution Log",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "At"
+          ],
+          "schema": [],
+          "value": {
+            "At": "={{ $now.toISO() }}",
+            "Workflow": "Digital Twin Slack Bot \u2014 Siva",
+            "Status": "={{ $json.status || 'completed' }}",
+            "Detail": "= $('Parse Agent Output').first().json.text"
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "8049f47d-ab0d-4ae2-a320-956efae5dc4e",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        560
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "ab83503c-aea7-485c-9077-2a4a9a520bbe",
+      "name": "Log Error to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        560
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Errors",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "At"
+          ],
+          "schema": [],
+          "value": {
+            "At": "={{ $now.toISO() }}",
+            "Error": "={{ $json.error?.message || JSON.stringify($json.error || $json) }}",
+            "Node": "={{ $json.execution?.lastNodeExecuted || $json.node || 'unknown' }}",
+            "Workflow": "Digital Twin Slack Bot \u2014 Siva"
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "0ad196a0-600e-4955-8eee-72086fd9d306",
+      "name": "Notify Siva (Error)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        560
+      ],
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Workflow Digital Twin Slack Bot \u2014 Siva hit an error.\n\nNode: {{ $json.execution?.lastNodeExecuted || 'unknown' }}\nError: {{ $json.error?.message || 'see Errors sheet' }}",
+        "additionalFields": {}
+      },
+      "notes": "Error alert only \u2014 never sends business content.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Question",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Question",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Question": {
+      "main": [
+        [
+          {
+            "node": "Is a Question?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is a Question?": {
+      "main": [
+        [
+          {
+            "node": "Memory Lookup (Placeholder)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Memory Lookup (Placeholder)": {
+      "main": [
+        [
+          {
+            "node": "Digital Twin Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Digital Twin Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Digital Twin Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse Agent Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Agent Output": {
+      "main": [
+        [
+          {
+            "node": "Needs Approval or Escalation?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Approval or Escalation?": {
+      "main": [
+        [
+          {
+            "node": "Escalate to Siva (Slack)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Post Answer to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Escalate to Siva (Slack)": {
+      "main": [
+        [
+          {
+            "node": "Log Pending Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Answer to Slack": {
+      "main": [
+        [
+          {
+            "node": "Log Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Log Error to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Error to Sheet": {
+      "main": [
+        [
+          {
+            "node": "Notify Siva (Error)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

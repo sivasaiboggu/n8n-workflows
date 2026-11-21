@@ -1,0 +1,750 @@
+{
+  "name": "Reputation Radar \u2014 Siva",
+  "nodes": [
+    {
+      "id": "5b55824e-8660-4396-ac87-85e07948f3b2",
+      "name": "Sticky Note \u2014 Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -320
+      ],
+      "parameters": {
+        "color": 4,
+        "content": "## Reputation Radar \u2014 setup\n1. Create the Google Sheet (tabs: Mentions, Reply Queue, Weekly Report, Execution Log, Errors) \u2014 see SETUP.md.\n2. Connect credentials: Google Sheets, Google Gemini API, Telegram, Gmail (weekly report email).\n3. Paste your Sheet ID, Reddit search feed URLs, Trustpilot URL and Google Places API key where marked YOUR_*.\n4. Test with Manual Trigger first. Only then activate the schedules.",
+        "height": 260,
+        "width": 420
+      }
+    },
+    {
+      "id": "133e4757-2a8c-4904-b85d-1fce8303dc48",
+      "name": "Sticky Note \u2014 Rules",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        480,
+        -320
+      ],
+      "parameters": {
+        "color": 6,
+        "content": "## Hard rules (do not remove)\n- Draft replies are NEVER auto-posted. A negative mention only creates a\n  draft in the Reply Queue sheet + a Telegram alert for Siva to approve.\n- Sentiment comes from the actual mention text \u2014 never invented mentions.\n- X/Twitter has no free public feed: the X source below is a placeholder\n  HTTP call that must be replaced with Siva's own X API access (see SETUP.md).",
+        "height": 260,
+        "width": 420
+      }
+    },
+    {
+      "id": "9f0d27bb-6fd9-4734-b3b3-3f4926ed475a",
+      "name": "Sticky Note \u2014 Memory",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        960,
+        -320
+      ],
+      "parameters": {
+        "color": 5,
+        "content": "## Memory / learning\nThe Mentions sheet is the memory layer: every mention, its sentiment and\nits date is logged, so the Monday weekly report can show real trends\ninstead of re-fetching history. No live DB \u2014 Sheets only.",
+        "height": 260,
+        "width": 420
+      }
+    },
+    {
+      "id": "8affc585-14e4-426a-ad29-f98d04ad9085",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "38acfe95-a615-4edb-b9d5-594f8f6d0880",
+      "name": "Schedule Trigger (Daily)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        240
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "expression": "0 8 * * *",
+              "field": "cronExpression"
+            }
+          ]
+        },
+        "timezone": "Asia/Kolkata"
+      },
+      "notes": "Daily mention scan at 08:00 IST."
+    },
+    {
+      "id": "a3c8a1a0-d87b-4cca-947e-ae0bee3d87ca",
+      "name": "Schedule Trigger (Weekly)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        480
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "expression": "0 9 * * 1",
+              "field": "cronExpression"
+            }
+          ]
+        },
+        "timezone": "Asia/Kolkata"
+      },
+      "notes": "Weekly trend report every Monday at 09:00 IST."
+    },
+    {
+      "id": "963167b5-e3d9-4e6a-aba9-27a97af6622d",
+      "name": "Monitor Sources",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        120
+      ],
+      "parameters": {
+        "jsCode": "// Sources to check. Reddit search RSS is a real public feed.\n// Trustpilot / Google Reviews / X need the user's own access \u2014 see SETUP.md.\n// NEVER invent a mention: a source that fails simply yields no mentions.\nconst keywords = 'YOUR_KEYWORDS'; // e.g. 'Sivasai Boggu' or a brand name, comma-separated\nconst sources = [\n  { source: 'Reddit', type: 'rss',\n    url: 'https://old.reddit.com/search.rss?q=' + encodeURIComponent(keywords) + '&sort=new' },\n  { source: 'Trustpilot', type: 'http', url: 'YOUR_TRUSTPILOT_COMPANY_URL' },\n  { source: 'Google Reviews', type: 'http', url: 'YOUR_GOOGLE_REVIEWS_URL' },\n  { source: 'X', type: 'http', url: 'YOUR_X_SEARCH_API_URL' }\n];\nreturn sources.map(s => ({ json: { ...s, keywords } }));"
+      }
+    },
+    {
+      "id": "80630466-eddf-4214-b57e-646e94eeef16",
+      "name": "Fetch Source",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        120
+      ],
+      "parameters": {
+        "method": "GET",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 15000
+        },
+        "url": "={{ $json.url }}"
+      },
+      "notes": "Fetches one source. A source that blocks or fails is logged by the Error Trigger \u2014 it never produces fake mentions.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "09e0dd5c-ff2f-40f8-83e0-8d8a84f9a54a",
+      "name": "Collect Mentions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        120
+      ],
+      "parameters": {
+        "jsCode": "// Normalise each source's response into mentions {source, title, text, url, date}.\n// RSS items carry title/link; HTML pages fall back to link scraping.\n// If a source returns nothing usable, it contributes zero mentions.\nconst out = [];\nfor (const item of $input.all()) {\n  const src = item.json.source || 'unknown';\n  const raw = typeof item.json.data === 'string' ? item.json.data : JSON.stringify(item.json.data || item.json);\n  let found = [];\n  try {\n    const parsed = JSON.parse(raw);\n    const arr = Array.isArray(parsed) ? parsed : (parsed.items || parsed.results || parsed.data || []);\n    found = arr.map(r => ({ title: r.title || '', text: r.selftext || r.body || r.text || '', url: r.link || r.url || '', date: r.pubDate || r.created || '' }));\n  } catch (e) {\n    const links = [...raw.matchAll(/<a[^>]+href=\\\"([^\\\"]+)\\\"[^>]*>([^<]{5,160})<\\/a>/g)];\n    found = links.map(m => ({ title: m[2].trim(), text: '', url: m[1], date: '' }));\n  }\n  for (const f of found) {\n    if (!f.title && !f.text) continue;\n    out.push({ json: { source: src, title: f.title, text: f.text || f.title,\n      url: f.url || '', date: f.date || new Date().toISOString(), foundAt: new Date().toISOString() } });\n  }\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "31ea123f-f3a9-4cbb-8f65-d45022448a38",
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        900,
+        120
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "notes": "One mention at a time."
+    },
+    {
+      "id": "21be0e89-c486-4006-8380-8925edd72caf",
+      "name": "Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        900,
+        340
+      ],
+      "parameters": {
+        "modelName": "models/gemini-2.0-flash",
+        "options": {}
+      },
+      "notes": "Free-tier Gemini model. Connect your Google Gemini API credential here."
+    },
+    {
+      "id": "d47ed47d-1226-49d5-911f-3db31728e4af",
+      "name": "Analyse Sentiment",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        1120,
+        120
+      ],
+      "parameters": {
+        "options": {
+          "systemMessage": "You are Siva's reputation analyst. Classify the sentiment of each mention about Siva or his projects (AI SDR Agent, Voice Receptionist, HireMind AI, SecureFlow, AuditMind). Judge ONLY from the mention text provided \u2014 never invent context. For negative mentions, draft a short, calm, professional reply in Siva's voice (direct, honest, no defensiveness) that acknowledges the point and offers a next step. The reply is a DRAFT for Siva to approve \u2014 it is never posted automatically."
+        },
+        "promptType": "define",
+        "text": "=Mention from {{ $json.source }} ({{ $json.date }}):\n\"{{ $json.title }}\"\n{{ $json.text }}\nLink: {{ $json.url }}\n\nReply with ONLY this JSON, no other text: {\"sentiment\": \"positive\" or \"neutral\" or \"negative\", \"score\": -1.0 to 1.0, \"topic\": \"...\", \"summary\": \"...\", \"draftReply\": \"...\"}. draftReply is empty unless sentiment is negative."
+      },
+      "notes": "Gemini sentiment analysis. Negative mentions get a draft reply \u2014 never an auto-post."
+    },
+    {
+      "id": "666694c2-ea56-4786-af63-486fba049688",
+      "name": "Parse Sentiment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        120
+      ],
+      "parameters": {
+        "jsCode": "// Parse the sentiment JSON; on failure mark sentiment 'unknown' so the\n// mention is logged but never treated as negative.\nconst raw = $input.first().json.output || $input.first().json.text || '';\nconst prev = $('Split In Batches').first().json;\nlet p = {};\ntry { p = JSON.parse(raw); } catch (e) {\n  const m = String(raw).match(/\\{[\\s\\S]*\\}/);\n  try { p = m ? JSON.parse(m[0]) : {}; } catch (e2) { p = {}; }\n}\nreturn [{ json: { ...prev, sentiment: ['positive', 'neutral', 'negative'].includes(p.sentiment) ? p.sentiment : 'unknown',\n  score: typeof p.score === 'number' ? p.score : 0, topic: p.topic || '',\n  summary: p.summary || '', draftReply: p.draftReply || '' } }];"
+      }
+    },
+    {
+      "id": "6a19f8f2-5560-47d8-93f1-51c33d49b9c7",
+      "name": "Log Mention",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        1560,
+        120
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Mentions",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Source"
+          ],
+          "schema": [],
+          "value": {
+            "Source": "={{ $json.source }}",
+            "Title": "={{ $json.title }}",
+            "URL": "={{ $json.url }}",
+            "Sentiment": "={{ $json.sentiment }}",
+            "Score": "={{ $json.score }}",
+            "Topic": "={{ $json.topic }}",
+            "Summary": "={{ $json.summary }}",
+            "Found At": "={{ $json.foundAt }}"
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "f79d2c64-a4ee-4432-a2f5-584fedae1802",
+      "name": "Negative?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1780,
+        120
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "neg-check",
+              "leftValue": "={{ $json.sentiment === 'negative' }}",
+              "operator": {
+                "name": "filter.operator.boolean.true",
+                "operation": "true",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      },
+      "notes": "Only negative mentions go to the approval queue. Everything else is just logged."
+    },
+    {
+      "id": "d52fbec0-6002-467b-954e-ffb6d8ac3123",
+      "name": "Queue Draft Reply",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        2000,
+        40
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Reply Queue",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Source"
+          ],
+          "schema": [],
+          "value": {
+            "Source": "={{ $json.source }}",
+            "Title": "={{ $json.title }}",
+            "URL": "={{ $json.url }}",
+            "Mention Date": "={{ $json.date }}",
+            "Draft Reply": "={{ $json.draftReply }}",
+            "Status": "pending approval",
+            "Queued At": "={{ $now.toISO() }}"
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "a42eb142-08c5-4490-a6ef-70dd59310e46",
+      "name": "Telegram: Negative Mention",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2220,
+        40
+      ],
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Negative mention needs your review\n\n{{ $json.source }} \u2014 {{ $json.title }}\n{{ $json.summary }}\n{{ $json.url }}\n\nDraft reply (NOT posted):\n{{ $json.draftReply }}\n\nApprove/edit it in the Reply Queue sheet, then post it yourself. This workflow never posts replies.",
+        "additionalFields": {}
+      },
+      "notes": "HUMAN APPROVAL STEP. The draft sits in the Reply Queue sheet until Siva approves it.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "315950f6-1b36-4d39-9b9e-93cb710ceac3",
+      "name": "Log Execution",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        2220,
+        260
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Execution Log",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "At"
+          ],
+          "schema": [],
+          "value": {
+            "At": "={{ $now.toISO() }}",
+            "Workflow": "Reputation Radar \u2014 Siva",
+            "Status": "={{ $json.status || 'completed' }}",
+            "Detail": "= $('Parse Sentiment').first().json.title"
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "f55f36e3-701d-49f4-bf6d-230e62ae1e9f",
+      "name": "Read Mentions (Week)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        480
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "read",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Mentions"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "b886af6d-b7c5-460c-999d-c7889d4ba7af",
+      "name": "Build Weekly Trend Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        480
+      ],
+      "parameters": {
+        "jsCode": "// Aggregate the last 7 days of logged mentions into a trend summary.\n// Counts only what the Mentions sheet actually contains.\nconst now = Date.now();\nconst WEEK = 7 * 24 * 60 * 60 * 1000;\nconst rows = $input.all().map(i => i.json);\nconst week = rows.filter(r => (now - new Date(r['Found At'] || r.foundAt || 0).getTime()) <= WEEK);\nconst count = s => week.filter(r => (r.Sentiment || r.sentiment) === s).length;\nconst bySource = {};\nfor (const r of week) { const s = r.Source || r.source || 'unknown'; bySource[s] = (bySource[s] || 0) + 1; }\nconst byDay = {};\nfor (const r of week) { const d = (r['Found At'] || r.foundAt || '').slice(0, 10); byDay[d] = (byDay[d] || 0) + 1; }\nconst report = [\n  'Reputation Radar \u2014 weekly trend (' + new Date(now - WEEK).toISOString().slice(0, 10) + ' to ' + new Date(now).toISOString().slice(0, 10) + ')',\n  'Total mentions: ' + week.length,\n  'Positive: ' + count('positive') + ' | Neutral: ' + count('neutral') + ' | Negative: ' + count('negative') + ' | Unknown: ' + count('unknown'),\n  'By source: ' + JSON.stringify(bySource),\n  'By day: ' + JSON.stringify(byDay)\n].join('\\n');\nreturn [{ json: { weekStart: new Date(now - WEEK).toISOString().slice(0, 10),\n  weekEnd: new Date(now).toISOString().slice(0, 10), total: week.length,\n  positive: count('positive'), neutral: count('neutral'), negative: count('negative'),\n  unknown: count('unknown'), bySource, byDay, report } }];"
+      }
+    },
+    {
+      "id": "6455751c-36b5-4087-a2ad-e6dabba24752",
+      "name": "Write Weekly Report",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        480
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Weekly Report",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Week Start"
+          ],
+          "schema": [],
+          "value": {
+            "Week Start": "={{ $json.weekStart }}",
+            "Week End": "={{ $json.weekEnd }}",
+            "Total Mentions": "={{ $json.total }}",
+            "Positive": "={{ $json.positive }}",
+            "Neutral": "={{ $json.neutral }}",
+            "Negative": "={{ $json.negative }}",
+            "By Source": "={{ JSON.stringify($json.bySource) }}",
+            "Report": "={{ $json.report }}"
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "f46082f0-cc75-45ea-93fa-8ec17207177e",
+      "name": "Email Weekly Report",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        960,
+        480
+      ],
+      "parameters": {
+        "emailType": "text",
+        "message": "=Hi Siva,\n\nYour weekly reputation trend is below. Full detail is in the Weekly Report sheet.\n\n{{ $json.report }}\n\n\u2014 Reputation Radar",
+        "operation": "send",
+        "options": {
+          "appendAttribution": false
+        },
+        "resource": "message",
+        "sendTo": "sivasaiboggu@gmail.com",
+        "subject": "=Reputation Radar \u2014 weekly trend {{ $json.weekStart }} to {{ $json.weekEnd }}"
+      },
+      "notes": "Weekly summary email. Negative-mention drafts are never auto-posted.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "4dff3d86-c08b-4226-b310-fdc72a1d8a82",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        760
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "12737757-8983-476c-9036-8d15699e8c1e",
+      "name": "Log Error to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        760
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Errors",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "At"
+          ],
+          "schema": [],
+          "value": {
+            "At": "={{ $now.toISO() }}",
+            "Error": "={{ $json.error?.message || JSON.stringify($json.error || $json) }}",
+            "Node": "={{ $json.execution?.lastNodeExecuted || $json.node || 'unknown' }}",
+            "Workflow": "Reputation Radar \u2014 Siva"
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "1a0c39c8-9b6b-4110-a13d-b0a3a8d55a58",
+      "name": "Notify Siva (Error)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        760
+      ],
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Workflow Reputation Radar \u2014 Siva hit an error.\n\nNode: {{ $json.execution?.lastNodeExecuted || 'unknown' }}\nError: {{ $json.error?.message || 'see Errors sheet' }}",
+        "additionalFields": {}
+      },
+      "notes": "Error alert only \u2014 never sends business content.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Monitor Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger (Daily)": {
+      "main": [
+        [
+          {
+            "node": "Monitor Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger (Weekly)": {
+      "main": [
+        [
+          {
+            "node": "Read Mentions (Week)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Monitor Sources": {
+      "main": [
+        [
+          {
+            "node": "Fetch Source",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Source": {
+      "main": [
+        [
+          {
+            "node": "Collect Mentions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Mentions": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split In Batches": {
+      "main": [
+        [
+          {
+            "node": "Analyse Sentiment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Analyse Sentiment",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyse Sentiment": {
+      "main": [
+        [
+          {
+            "node": "Parse Sentiment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Sentiment": {
+      "main": [
+        [
+          {
+            "node": "Log Mention",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Mention": {
+      "main": [
+        [
+          {
+            "node": "Negative?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Negative?": {
+      "main": [
+        [
+          {
+            "node": "Queue Draft Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Queue Draft Reply": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Negative Mention",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Mentions (Week)": {
+      "main": [
+        [
+          {
+            "node": "Build Weekly Trend Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Weekly Trend Report": {
+      "main": [
+        [
+          {
+            "node": "Write Weekly Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Weekly Report": {
+      "main": [
+        [
+          {
+            "node": "Email Weekly Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Log Error to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Error to Sheet": {
+      "main": [
+        [
+          {
+            "node": "Notify Siva (Error)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

@@ -1,0 +1,747 @@
+{
+  "name": "Price Drop Sniper \u2014 Siva",
+  "nodes": [
+    {
+      "id": "38e57a7b-9cbe-481a-86b6-b3cd8cba46a5",
+      "name": "Sticky Note \u2014 Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -320
+      ],
+      "parameters": {
+        "color": 4,
+        "content": "## Price Drop Sniper \u2014 setup\n1. Create the Google Sheet (tabs: Watchlist, Price Log, Alerts, Execution Log, Errors) \u2014 see SETUP.md.\n2. Connect credentials: Google Sheets, Google Gemini API, Telegram.\n3. Paste your Sheet ID where marked YOUR_*. Add products to the Watchlist tab.\n4. Test with Manual Trigger first. Only then activate the schedule.",
+        "height": 260,
+        "width": 420
+      }
+    },
+    {
+      "id": "60e11389-4705-4249-9936-bbc80c5bea53",
+      "name": "Sticky Note \u2014 Rules",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        480,
+        -320
+      ],
+      "parameters": {
+        "color": 6,
+        "content": "## Hard rules (do not remove)\n- This workflow NEVER buys anything. It only alerts Siva on Telegram.\n- A purchase happens only if Siva buys it himself after the alert.\n- Prices come only from the fetched page or the sheet \u2014 never invented.\n- If a price cannot be parsed, the item is logged as 'price not found', never guessed.",
+        "height": 260,
+        "width": 420
+      }
+    },
+    {
+      "id": "2d1dd1d0-a4e5-4829-8c6f-ebd0282bac53",
+      "name": "Sticky Note \u2014 Memory",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        960,
+        -320
+      ],
+      "parameters": {
+        "color": 5,
+        "content": "## Memory / learning\nThe Price Log sheet is the memory layer: every price check is logged, so\nbaselines and drop history survive across runs. Baselines in the Watchlist\ntab are updated only from real fetched prices, never from AI estimates.",
+        "height": 260,
+        "width": 420
+      }
+    },
+    {
+      "id": "8f42b658-63a8-48cf-806d-44d463a39430",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "820eabe9-a8f7-49c6-be46-9ba25dc8810e",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        240
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 2
+            }
+          ]
+        }
+      },
+      "notes": "Runs every 2 hours."
+    },
+    {
+      "id": "5153484c-e6f3-4a6f-9b03-d7d559d440d3",
+      "name": "Read Watchlist",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        120
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "read",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Watchlist"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "0a4a192c-dc81-4dad-aa03-40b1350adf32",
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        460,
+        120
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "notes": "One product at a time."
+    },
+    {
+      "id": "0ae96cbc-e61b-478d-89dc-c7cb85abbf31",
+      "name": "Fetch Product Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        120
+      ],
+      "parameters": {
+        "method": "GET",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 15000
+        },
+        "url": "={{ $json.URL || $json.Url || $json.url }}"
+      },
+      "notes": "Fetches the product/listing page. Facebook Marketplace and eBay often block scraping \u2014 a failed fetch is logged, not faked.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "88b791e2-7eac-4bd7-9afe-f48ee536778a",
+      "name": "Parse Price",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        120
+      ],
+      "parameters": {
+        "jsCode": "// Extract a price from the fetched page. Tries JSON-LD price, then common\n// price patterns. If nothing is found, price stays null \u2014 never invented.\nconst item = $('Split In Batches').first().json;\nconst raw = typeof $input.first().json.data === 'string' ? $input.first().json.data : JSON.stringify($input.first().json);\nlet price = null;\nconst ld = raw.match(/\"price\"\\s*:\\s*\"?([0-9][0-9,]*\\.?[0-9]*)\"?/);\nif (ld) price = parseFloat(ld[1].replace(/,/g, ''));\nif (price === null) {\n  const m = raw.match(/(?:Rs\\.?|INR|\\$|\u00a3|\u20ac)\\s*([0-9][0-9,]*(?:\\.[0-9]{2})?)/);\n  if (m) price = parseFloat(m[1].replace(/,/g, ''));\n}\nconst baseline = parseFloat(item['Baseline Price'] || item.baselinePrice || 0) || 0;\nconst target = parseFloat(item['Target Price'] || item.targetPrice || 0) || 0;\nconst dropPct = (price !== null && baseline > 0) ? ((baseline - price) / baseline) * 100 : 0;\nreturn [{ json: { product: item.Product || item.product || '',\n  url: item.URL || item.Url || item.url || '', source: item.Source || item.source || '',\n  baseline, target, price, dropPct,\n  priceFound: price !== null, checkedAt: new Date().toISOString() } }];"
+      }
+    },
+    {
+      "id": "ab5d9df5-b51d-4933-96ba-94acf18c03e0",
+      "name": "Price Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1120,
+        120
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "found-check",
+              "leftValue": "={{ $json.priceFound }}",
+              "operator": {
+                "name": "filter.operator.boolean.true",
+                "operation": "true",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "39030c85-80e6-40c0-98b4-1468a7b52fc7",
+      "name": "Log Price Not Found",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        1340,
+        260
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Price Log",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Product"
+          ],
+          "schema": [],
+          "value": {
+            "Product": "={{ $json.product }}",
+            "Source": "={{ $json.source }}",
+            "URL": "={{ $json.url }}",
+            "Price": "not found \u2014 page may block scraping",
+            "Baseline Price": "={{ $json.baseline }}",
+            "Checked At": "={{ $json.checkedAt }}"
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "14a4d5a8-56ac-47da-afe5-b17f7cf02d53",
+      "name": "Price Drop?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1340,
+        40
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "or",
+          "conditions": [
+            {
+              "id": "drop-check",
+              "leftValue": "={{ $json.dropPct >= 10 }}",
+              "operator": {
+                "name": "filter.operator.boolean.true",
+                "operation": "true",
+                "type": "boolean"
+              },
+              "rightValue": true
+            },
+            {
+              "id": "target-check",
+              "leftValue": "={{ $json.target > 0 && $json.price <= $json.target }}",
+              "operator": {
+                "name": "filter.operator.boolean.true",
+                "operation": "true",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      },
+      "notes": "TRUE when the price fell 10%+ vs baseline OR hit the target price."
+    },
+    {
+      "id": "a50ed48c-3fce-473d-b70f-fc141f57cfe1",
+      "name": "Log No Drop",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        1560,
+        260
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Price Log",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Product"
+          ],
+          "schema": [],
+          "value": {
+            "Product": "={{ $json.product }}",
+            "Source": "={{ $json.source }}",
+            "URL": "={{ $json.url }}",
+            "Price": "={{ $json.price }}",
+            "Baseline Price": "={{ $json.baseline }}",
+            "Checked At": "={{ $json.checkedAt }}"
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "c1285bb8-1f7c-414c-a068-846589b6b35a",
+      "name": "Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        280
+      ],
+      "parameters": {
+        "modelName": "models/gemini-2.0-flash",
+        "options": {}
+      },
+      "notes": "Free-tier Gemini model. Connect your Google Gemini API credential here."
+    },
+    {
+      "id": "fc62d94e-2101-48b6-a8ed-23cad2123899",
+      "name": "Check Resale Value",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        1780,
+        40
+      ],
+      "parameters": {
+        "options": {
+          "systemMessage": "You are Siva's resale analyst. Given a product, its current price, its baseline price and its source, estimate whether it is worth buying to resell in India. Use only the facts provided \u2014 never invent a market price. State your uncertainty clearly. Consider typical resale platforms (OLX, eBay, Facebook Marketplace) and that fees and shipping eat margin. Be conservative: if you are unsure, say so."
+        },
+        "promptType": "define",
+        "text": "=Product: {{ $json.product }}\nSource: {{ $json.source }}\nCurrent price: {{ $json.price }} (baseline was {{ $json.baseline }}, drop {{ $json.dropPct }}%)\nListing: {{ $json.url }}\nReply with ONLY this JSON, no other text: {\"resaleEstimate\": 0, \"profitEstimate\": 0, \"confidence\": 0.0, \"reason\": \"...\", \"worthIt\": true or false}. resaleEstimate and profitEstimate are rough numbers in the same currency as the price. If you cannot estimate honestly, set worthIt to false and say why."
+      },
+      "notes": "AI resale check. Estimates are rough \u2014 Siva verifies before any purchase."
+    },
+    {
+      "id": "746c0e75-af0e-45fc-a886-975f744564d1",
+      "name": "Parse Resale Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        40
+      ],
+      "parameters": {
+        "jsCode": "// Parse the resale JSON; on failure, treat as not worth it \u2014 never alert on a guess.\nconst raw = $input.first().json.output || $input.first().json.text || '';\nconst prev = $('Price Drop?').first().json;\nlet p = {};\ntry { p = JSON.parse(raw); } catch (e) {\n  const m = String(raw).match(/\\{[\\s\\S]*\\}/);\n  try { p = m ? JSON.parse(m[0]) : {}; } catch (e2) { p = {}; }\n}\nreturn [{ json: { ...prev, resaleEstimate: p.resaleEstimate || 0,\n  profitEstimate: p.profitEstimate || 0,\n  confidence: typeof p.confidence === 'number' ? p.confidence : 0,\n  reason: p.reason || 'Could not parse resale check',\n  worthIt: p.worthIt === true } }];"
+      }
+    },
+    {
+      "id": "c105f8a2-fe96-4200-9714-b0342e535db0",
+      "name": "Worth It?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2220,
+        40
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "worth-check",
+              "leftValue": "={{ $json.worthIt }}",
+              "operator": {
+                "name": "filter.operator.boolean.true",
+                "operation": "true",
+                "type": "boolean"
+              },
+              "rightValue": true
+            },
+            {
+              "id": "profit-check",
+              "leftValue": "={{ $json.profitEstimate >= 500 }}",
+              "operator": {
+                "name": "filter.operator.boolean.true",
+                "operation": "true",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      },
+      "notes": "Alerts only when the AI says worth it AND estimated profit is at least 500 (same currency)."
+    },
+    {
+      "id": "b78faf9d-b79c-4c5b-83e4-984d2e96e621",
+      "name": "Log Alert",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        2440,
+        40
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Alerts",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Product"
+          ],
+          "schema": [],
+          "value": {
+            "Product": "={{ $json.product }}",
+            "Source": "={{ $json.source }}",
+            "URL": "={{ $json.url }}",
+            "Price": "={{ $json.price }}",
+            "Baseline Price": "={{ $json.baseline }}",
+            "Drop %": "={{ $json.dropPct }}",
+            "Resale Estimate": "={{ $json.resaleEstimate }}",
+            "Profit Estimate": "={{ $json.profitEstimate }}",
+            "Alerted At": "={{ $json.checkedAt }}"
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "59c4c852-0948-4108-bbb9-c72d78749532",
+      "name": "Telegram Price Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2660,
+        40
+      ],
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Price drop sniper found a deal\n\n{{ $json.product }} ({{ $json.source }})\nPrice now: {{ $json.price }} (was {{ $json.baseline }}, down {{ $json.dropPct }}%)\nResale estimate: {{ $json.resaleEstimate }} \u2014 profit estimate: {{ $json.profitEstimate }}\n{{ $json.reason }}\n\n{{ $json.url }}\n\nThis is an alert only \u2014 nothing was bought. Check the listing yourself before buying.",
+        "additionalFields": {}
+      },
+      "notes": "HUMAN APPROVAL: no purchase node exists in this workflow. Siva buys manually if he agrees.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "688b29aa-24d9-45db-a212-707fc397c3a8",
+      "name": "Log Execution",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        2880,
+        40
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Execution Log",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "At"
+          ],
+          "schema": [],
+          "value": {
+            "At": "={{ $now.toISO() }}",
+            "Workflow": "Price Drop Sniper \u2014 Siva",
+            "Status": "={{ $json.status || 'completed' }}",
+            "Detail": "= $('Parse Price').first().json.product"
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "76c57a16-7c72-42ef-8966-2cef29999c0b",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        560
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "dafaee50-c480-4d0d-b773-56706d62bb69",
+      "name": "Log Error to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        560
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Errors",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "At"
+          ],
+          "schema": [],
+          "value": {
+            "At": "={{ $now.toISO() }}",
+            "Error": "={{ $json.error?.message || JSON.stringify($json.error || $json) }}",
+            "Node": "={{ $json.execution?.lastNodeExecuted || $json.node || 'unknown' }}",
+            "Workflow": "Price Drop Sniper \u2014 Siva"
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "47b06419-f4eb-4aed-8a8f-58eb5cdedab9",
+      "name": "Notify Siva (Error)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        560
+      ],
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Workflow Price Drop Sniper \u2014 Siva hit an error.\n\nNode: {{ $json.execution?.lastNodeExecuted || 'unknown' }}\nError: {{ $json.error?.message || 'see Errors sheet' }}",
+        "additionalFields": {}
+      },
+      "notes": "Error alert only \u2014 never sends business content.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Watchlist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Watchlist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Watchlist": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split In Batches": {
+      "main": [
+        [
+          {
+            "node": "Fetch Product Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Product Page": {
+      "main": [
+        [
+          {
+            "node": "Parse Price",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Price": {
+      "main": [
+        [
+          {
+            "node": "Price Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Price Found?": {
+      "main": [
+        [
+          {
+            "node": "Price Drop?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Price Not Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Price Drop?": {
+      "main": [
+        [
+          {
+            "node": "Check Resale Value",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log No Drop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Check Resale Value",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Resale Value": {
+      "main": [
+        [
+          {
+            "node": "Parse Resale Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Resale Check": {
+      "main": [
+        [
+          {
+            "node": "Worth It?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Worth It?": {
+      "main": [
+        [
+          {
+            "node": "Log Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Log Alert": {
+      "main": [
+        [
+          {
+            "node": "Telegram Price Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Price Alert": {
+      "main": [
+        [
+          {
+            "node": "Log Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Log Error to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Error to Sheet": {
+      "main": [
+        [
+          {
+            "node": "Notify Siva (Error)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

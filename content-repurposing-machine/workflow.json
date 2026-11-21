@@ -1,0 +1,590 @@
+{
+  "name": "Content Repurposing Machine \u2014 Siva",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "Content Repurposing Machine \u2014 Siva\nYouTube URL in (webhook/manual) \u2192 fetch transcript \u2192 Gemini writes a blog post, X thread, LinkedIn post and 5 short-form hooks \u2192 image draft \u2192 NOTHING is scheduled or published until Siva approves.",
+        "height": 120,
+        "width": 480
+      },
+      "id": "d2e03950-aa54-4123-a702-48e5be8f36ad",
+      "name": "Sticky Note \u2014 Flow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "MEMORY LAYER (no live DB): the Repurposing Log sheet is the memory \u2014 one row per video (url, transcript hash, outputs, what was approved/published). Reuse past rows to avoid re-doing a video. Postgres/vector store can replace the sheet later; do not invent a live DB connection.",
+        "height": 120,
+        "width": 480
+      },
+      "id": "a2cafea3-1870-4537-942c-9a27c467a2c8",
+      "name": "Sticky Note \u2014 Memory Layer",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "CREDENTIALS NEEDED (pick/create on import \u2014 no credential is set in this file):\n- Transcript API key \u2014 Fetch Transcript (set YOUR_TRANSCRIPT_API_URL)\n- Image Generation API key \u2014 Generate Thumbnail Image\n- Buffer API token \u2014 Schedule via Buffer\n- Telegram API \u2014 Send Approval Request, Notify on Error\n- Google Sheets (OAuth2) \u2014 Save Drafts to Sheet, Log Error to Sheet, Log Execution\n- Google Gemini (PaLM) API \u2014 Gemini Chat Model",
+        "height": 120,
+        "width": 480
+      },
+      "id": "8385de0e-39e2-4a0b-a9b9-30c6c88d2e5b",
+      "name": "Sticky Note \u2014 Credentials",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "repurpose",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "d863df63-e76c-4085-9b00-2895285a512b",
+      "name": "Webhook \u2014 YouTube URL",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "b58ad1eb-a8dd-46fa-acb3-b9fe0175d2c5",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const u = $json.url || $json.youtube_url || '';\nif (!/^https?:\\/\\/(www\\.)?(youtube\\.com|youtu\\.be)\\//.test(u)) throw new Error('Not a YouTube URL: ' + u);\nreturn [{ json: { url: u, video_id: u } }];"
+      },
+      "id": "ddf59391-7c93-4465-b98a-174eb4af2264",
+      "name": "Validate YouTube URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "YOUR_TRANSCRIPT_API_URL?url={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "id": "a2937315-074d-4a11-8709-e693fc575a98",
+      "name": "Fetch Transcript",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "model": "gemini-2.0-flash",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "37b8f702-eb34-4751-a6b9-878766f5dddb",
+      "name": "Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        720,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=From this YouTube transcript, write: (1) a blog post, (2) an X thread (8 posts), (3) a LinkedIn post, (4) 5 short-form video hooks. Transcript: {{ $json.transcript }}. Keep Siva's voice (BTech CS, AI agent builder). Only use claims in the transcript; do not invent quotes or stats.",
+        "options": {
+          "systemMessage": "You repurpose transcripts into a blog post, X thread, LinkedIn post and 5 hooks. Never invent quotes, stats or claims not in the transcript."
+        }
+      },
+      "id": "d61afea5-a771-485f-a0c9-3a922b706d2b",
+      "name": "Generate Repurposed Content (Gemini Agent)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        720,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_IMAGE_GEN_API_URL",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"prompt\": \"={{ $json.output }}\", \"size\": \"1280x720\"}"
+      },
+      "id": "d880a0f3-911b-434d-9cd5-a22f7a907c36",
+      "name": "Generate Thumbnail Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_CONTENT_SHEET_ID",
+        "sheetName": "Drafts",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "url": "={{ $json.url }}",
+            "blog": "={{ $json.output }}",
+            "status": "draft \u2014 awaiting approval"
+          }
+        }
+      },
+      "id": "752ce495-c231-4043-ae15-66933cfeb177",
+      "name": "Save Drafts to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        1200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Repurposed draft ready for {{ $json.url }}:\n{{ $json.output }}\nReply APPROVE to schedule via Buffer, or REJECT to keep it as a draft only.",
+        "additionalFields": {}
+      },
+      "id": "53a0c925-fdd4-4338-b004-cc7764a5c3a1",
+      "name": "Send Approval Request",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 4,
+        "unit": "hours"
+      },
+      "id": "f8be7141-382d-49ad-bfad-86bfd404872c",
+      "name": "Wait for Approval",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.approved }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true
+      },
+      "id": "42682eb1-a129-49bf-a175-1057e5e07ec6",
+      "name": "Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1920,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.buffer.com/2/updates/create.json",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"text\": \"={{ $json.output }}\", \"profile_ids\": [\"YOUR_BUFFER_PROFILE_ID\"]}"
+      },
+      "id": "db7a93d4-51e5-4610-9f1a-73758e9bd59a",
+      "name": "Schedule via Buffer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "baf7514b",
+              "name": "status",
+              "value": "draft only \u2014 not approved for scheduling",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "8e7815ee-2bb3-4161-9dd7-74921cae6012",
+      "name": "Log Skipped",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2160,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "options": {}
+      },
+      "id": "1bdb4c86-6e9a-4ddd-a298-1fe081f1ada9",
+      "name": "Merge Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        2400,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_EXECUTION_LOG_SHEET_ID",
+        "sheetName": "Log",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow": "Content Repurposing Machine",
+            "status": "={{ $json.status || 'done' }}",
+            "detail": "={{ $json.url || '' }}"
+          }
+        }
+      },
+      "id": "16af248c-a02b-4083-a1ce-f9f2c26c86a8",
+      "name": "Log Execution",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        2640,
+        180
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "95bacb90-96e8-488f-9165-9b75cd284d8c",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_ERROR_LOG_SHEET_ID",
+        "sheetName": "Errors",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow": "={{ $json.workflow?.name }}",
+            "node": "={{ $json.execution?.lastNodeExecuted }}",
+            "error": "={{ $json.execution?.error }}",
+            "execution_id": "={{ $json.execution?.id }}"
+          }
+        }
+      },
+      "id": "1b6882c0-0459-489c-b8a0-016e8711e5ec",
+      "name": "Log Error to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        240,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Content Repurposing Machine FAILED: {{ $json.error }}",
+        "additionalFields": {}
+      },
+      "id": "3c4eb20a-6599-4191-8b89-16add882b9d0",
+      "name": "Notify on Error (Telegram)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 2,
+      "position": [
+        480,
+        700
+      ]
+    }
+  ],
+  "connections": {
+    "Validate YouTube URL": {
+      "main": [
+        [
+          {
+            "node": "Fetch Transcript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Transcript": {
+      "main": [
+        [
+          {
+            "node": "Generate Repurposed Content (Gemini Agent)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Repurposed Content (Gemini Agent)": {
+      "main": [
+        [
+          {
+            "node": "Generate Thumbnail Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Thumbnail Image": {
+      "main": [
+        [
+          {
+            "node": "Save Drafts to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Drafts to Sheet": {
+      "main": [
+        [
+          {
+            "node": "Send Approval Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Approval Request": {
+      "main": [
+        [
+          {
+            "node": "Wait for Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Approval": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule via Buffer": {
+      "main": [
+        [
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Skipped": {
+      "main": [
+        [
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Results": {
+      "main": [
+        [
+          {
+            "node": "Log Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook \u2014 YouTube URL": {
+      "main": [
+        [
+          {
+            "node": "Validate YouTube URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate YouTube URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Generate Repurposed Content (Gemini Agent)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Schedule via Buffer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Log Error to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Error to Sheet": {
+      "main": [
+        [
+          {
+            "node": "Notify on Error (Telegram)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

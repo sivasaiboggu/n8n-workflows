@@ -1,0 +1,749 @@
+{
+ "name": "Event-Based Customer Win-Back — Siva",
+ "nodes": [
+  {
+   "parameters": {
+    "content": "CREDENTIALS NEEDED (pick/create on import — no credential is set in this file):\nn8n shows \"No credential set\" on each node below; click the node and pick/create the credential. No key or secret is stored in this file.\n- Google Sheets account (googleSheetsOAuth2) — Read Customer Signals, Save Draft Win-Back Message, Check Approval Sheet, Check for Reply, Log Win-Back Outcome, Log Not Sent — Awaiting Approval, Log Execution, Log Error to Sheet\n- Google Gemini(PaLM) Api (googlePalmApi) — Gemini Chat Model\n- Telegram account (telegramApi) — Send Approval Request via Telegram, Escalate to Human — No Reply, Notify Error via Telegram\n- Gmail account (gmailOAuth2) — Send Win-Back Email\n- SMS Provider API (httpHeaderAuth) — Send Win-Back SMS",
+    "height": 242,
+    "width": 560,
+    "color": 4
+   },
+   "id": "f68daa14-3131-4c6b-91df-060b88331d12",
+   "name": "Sticky Note — Credentials",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    0,
+    -522
+   ]
+  },
+  {
+   "parameters": {
+    "content": "Event-Based Customer Win-Back — Siva\nDetect churn signals (inactivity, failed payments, support complaints) from Sheets/CRM. Gemini writes a personalised win-back message.\nSends ONLY after human approval. Tracks replies; escalates to a human if no reply in 3 days.",
+    "height": 140,
+    "width": 560,
+    "color": 4
+   },
+   "id": "0b9dd2c5-d70c-4d04-b6b3-fab8d3d977b6",
+   "name": "About This Workflow",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    0,
+    -260
+   ]
+  },
+  {
+   "parameters": {
+    "httpMethod": "POST",
+    "path": "YOUR_WINBACK_WEBHOOK_PATH",
+    "responseMode": "onReceived",
+    "options": {}
+   },
+   "id": "7f976f7e-bec8-42b9-9bcd-e2c0ec25c44a",
+   "name": "Churn Signal Webhook",
+   "type": "n8n-nodes-base.webhook",
+   "typeVersion": 2,
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "rule": {
+     "interval": [
+      {
+       "field": "hours",
+       "hoursInterval": 24
+      }
+     ]
+    }
+   },
+   "id": "ab2f5125-0180-4f05-8d24-aa8dea989dc7",
+   "name": "Daily Churn Check",
+   "type": "n8n-nodes-base.scheduleTrigger",
+   "typeVersion": 1.2,
+   "position": [
+    0,
+    200
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Customer Signals",
+    "operation": "read"
+   },
+   "id": "eb35ee28-77e3-45bc-886d-7b8221faaee2",
+   "name": "Read Customer Signals",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    240,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "// Keep customers with a churn signal: inactive > 30 days, failed payment, or a support complaint.\nreturn $input.all().filter(i => { const j = i.json; return Number(j.days_inactive || 0) > 30 || String(j.payment_status || '').toLowerCase() === 'failed' || String(j.support_complaint || '').toLowerCase() === 'yes'; });"
+   },
+   "id": "1059656c-507e-4621-b896-c9d189bc270c",
+   "name": "Detect Churn Signals",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    480,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "promptType": "text",
+    "text": "=Write a short, personalised win-back message for the customer in the input. Use their name, product, and the specific churn signal (inactivity / failed payment / complaint — acknowledge a complaint, never argue). Offer one concrete next step, no discount you were not told to offer. Keep it under 120 words, warm and human. Output the message only. Input: {{ JSON.stringify($json).slice(0, 3000) }}",
+    "options": {}
+   },
+   "id": "f3f5acec-e943-4e05-84f4-f44daca85af8",
+   "name": "Win-Back Writer",
+   "type": "@n8n/n8n-nodes-langchain.agent",
+   "typeVersion": 1.7,
+   "position": [
+    720,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "model": "gemini-2.0-flash",
+    "options": {
+     "temperature": 0.3
+    }
+   },
+   "id": "81f2c012-9a9f-45df-ab31-ec5461637d86",
+   "name": "Gemini Chat Model",
+   "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+   "typeVersion": 1,
+   "position": [
+    720,
+    280
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Win-Back Drafts",
+    "operation": "append",
+    "columns": {
+     "mappingMode": "manual",
+     "value": {
+      "timestamp": "={{ $now }}",
+      "customer_name": "={{ $json.customer_name || '' }}",
+      "email": "={{ $json.email || '' }}",
+      "message": "={{ $json.output || '' }}",
+      "status": "draft — awaiting approval"
+     }
+    }
+   },
+   "id": "0b4735f6-5400-4318-ba1c-f6168bff3eab",
+   "name": "Save Draft Win-Back Message",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    960,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "chatId": "YOUR_TELEGRAM_CHAT_ID",
+    "text": "=📩 Win-back draft ready for {{ $json.customer_name || 'a customer' }} ({{ $json.email || '' }}).\n\n{{ $json.output || '' }}\n\nWrite APPROVE in the Approval tab to send it. Nothing is sent until then.",
+    "additionalFields": {
+     "appendAttribution": false
+    }
+   },
+   "id": "a785e36a-ddfd-4d18-a3b7-e802289d1b86",
+   "name": "Send Approval Request via Telegram",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    1200,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Approval",
+    "operation": "read"
+   },
+   "id": "f473994e-0ee2-4b97-b1c7-5e4b3384b852",
+   "name": "Check Approval Sheet",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    1440,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose"
+     },
+     "conditions": [
+      {
+       "id": "f6386d8e-4561-492a-a557-a0404c8467ff",
+       "leftValue": "={{ $json.approval || '' }}",
+       "rightValue": "APPROVE",
+       "operator": {
+        "type": "string",
+        "operation": "equals"
+       }
+      }
+     ],
+     "combinator": "and"
+    }
+   },
+   "id": "f18f03ac-4e47-446b-84f5-d1aa66de2f0f",
+   "name": "Approved to Send?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    1680,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "mode": "rules",
+    "rules": {
+     "values": [
+      {
+       "value1": "={{ $json.channel || 'email' }}",
+       "operation": "equals",
+       "value2": "sms"
+      },
+      {
+       "value1": "={{ $json.channel || 'email' }}",
+       "operation": "equals",
+       "value2": "email"
+      }
+     ]
+    },
+    "fallbackOutput": 1
+   },
+   "id": "0c461ef5-a077-4549-b74c-ac48e8347a7f",
+   "name": "Choose Channel (Email or SMS)",
+   "type": "n8n-nodes-base.switch",
+   "typeVersion": 3.2,
+   "position": [
+    1920,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "resource": "message",
+    "operation": "send",
+    "sendTo": "={{ $json.email }}",
+    "subject": "=We miss you — a quick note from Siva",
+    "emailType": "text",
+    "message": "= {{ $json.output || $json.message || '' }}"
+   },
+   "id": "da1c52f4-2ab9-42bc-bb59-c43359b0b235",
+   "name": "Send Win-Back Email",
+   "type": "n8n-nodes-base.gmail",
+   "typeVersion": 2.1,
+   "position": [
+    2160,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "method": "GET",
+    "url": "https://YOUR_SMS_PROVIDER_API/send?to=YOUR_CUSTOMER_PHONE&message=YOUR_MESSAGE_TEXT",
+    "authentication": "none",
+    "options": {
+     "response": {
+      "response": {
+       "responseFormat": "json"
+      }
+     },
+     "timeout": 10000
+    }
+   },
+   "id": "b29b2c9b-d0c8-46df-b24a-a406cc7e1c8f",
+   "name": "Send Win-Back SMS",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    2160,
+    200
+   ]
+  },
+  {
+   "parameters": {
+    "amount": 3,
+    "unit": "days"
+   },
+   "id": "efbea0ee-2334-4a59-824f-df949b8e7f94",
+   "name": "Wait 3 Days for Reply",
+   "type": "n8n-nodes-base.wait",
+   "typeVersion": 1.1,
+   "position": [
+    2400,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Replies",
+    "operation": "read"
+   },
+   "id": "72aa33b5-587b-4fec-a5af-72e41b191b20",
+   "name": "Check for Reply",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    2640,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose"
+     },
+     "conditions": [
+      {
+       "id": "33c98330-255b-454d-a856-36d266a99e6b",
+       "leftValue": "={{ $json.replied || '' }}",
+       "rightValue": "yes",
+       "operator": {
+        "type": "string",
+        "operation": "equals"
+       }
+      }
+     ],
+     "combinator": "and"
+    }
+   },
+   "id": "1faa3893-d7f5-4158-a5a8-41240bc7e9c8",
+   "name": "Customer Replied?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    2880,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Win-Back Outcomes",
+    "operation": "append",
+    "columns": {
+     "mappingMode": "manual",
+     "value": {
+      "timestamp": "={{ $now }}",
+      "customer_name": "={{ $json.customer_name || '' }}",
+      "outcome": "replied — follow up personally",
+      "status": "replied"
+     }
+    }
+   },
+   "id": "c9ebfe3a-087a-4ef0-91cf-e2baa6b7a00f",
+   "name": "Log Win-Back Outcome",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    3120,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "chatId": "YOUR_TELEGRAM_CHAT_ID",
+    "text": "=⏰ No reply in 3 days from {{ $json.customer_name || 'a win-back customer' }} ({{ $json.email || '' }}). Escalated to you — please follow up personally.",
+    "additionalFields": {
+     "appendAttribution": false
+    }
+   },
+   "id": "bdd18bb4-ce21-40ea-8354-d0836a598c95",
+   "name": "Escalate to Human — No Reply",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    3120,
+    200
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Execution Log",
+    "operation": "append",
+    "columns": {
+     "mappingMode": "manual",
+     "value": {
+      "timestamp": "={{ $now }}",
+      "workflow": "Event-Based Customer Win-Back — Siva",
+      "status": "awaiting approval — nothing sent",
+      "summary": "Draft saved; send blocked pending approval."
+     }
+    }
+   },
+   "id": "e1dcb0f7-bf5d-4470-a05f-1bc3e080c5af",
+   "name": "Log Not Sent — Awaiting Approval",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    1920,
+    400
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Execution Log",
+    "operation": "append",
+    "columns": {
+     "mappingMode": "manual",
+     "value": {
+      "timestamp": "={{ $now }}",
+      "workflow": "Event-Based Customer Win-Back — Siva",
+      "status": "completed",
+      "summary": "={{ JSON.stringify($json).slice(0, 500) }}"
+     }
+    }
+   },
+   "id": "80d091a8-8b16-4ecb-89e6-02a7ab2812cc",
+   "name": "Log Execution",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    3360,
+    0
+   ]
+  },
+  {
+   "parameters": {},
+   "id": "66e2e3bd-19ec-437e-b0e4-6a49aceb0671",
+   "name": "Error Trigger",
+   "type": "n8n-nodes-base.errorTrigger",
+   "typeVersion": 1,
+   "position": [
+    0,
+    500
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Error Log",
+    "operation": "append",
+    "columns": {
+     "mappingMode": "manual",
+     "value": {
+      "timestamp": "={{ $now }}",
+      "workflow": "={{ $json.workflow?.name || 'this workflow' }}",
+      "error": "={{ $json.error?.message || JSON.stringify($json) }}",
+      "node": "={{ $json.node || '' }}"
+     }
+    }
+   },
+   "id": "03db54d4-7069-40bd-8af2-8caaebe7fa91",
+   "name": "Log Error to Sheet",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    240,
+    500
+   ]
+  },
+  {
+   "parameters": {
+    "chatId": "YOUR_TELEGRAM_CHAT_ID",
+    "text": "=⚠️ Workflow error: {{ $json.error?.message || 'see Error Log sheet' }}. Check the Error Log tab in YOUR_GOOGLE_SHEET_ID.",
+    "additionalFields": {
+     "appendAttribution": false
+    }
+   },
+   "id": "db2b4798-0edc-431e-9b5f-de4d44a74332",
+   "name": "Notify Error via Telegram",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    480,
+    500
+   ]
+  }
+ ],
+ "connections": {
+  "Churn Signal Webhook": {
+   "main": [
+    [
+     {
+      "node": "Read Customer Signals",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Daily Churn Check": {
+   "main": [
+    [
+     {
+      "node": "Read Customer Signals",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Read Customer Signals": {
+   "main": [
+    [
+     {
+      "node": "Detect Churn Signals",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Detect Churn Signals": {
+   "main": [
+    [
+     {
+      "node": "Win-Back Writer",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Gemini Chat Model": {
+   "ai_languageModel": [
+    [
+     {
+      "node": "Win-Back Writer",
+      "type": "ai_languageModel",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Win-Back Writer": {
+   "main": [
+    [
+     {
+      "node": "Save Draft Win-Back Message",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Save Draft Win-Back Message": {
+   "main": [
+    [
+     {
+      "node": "Send Approval Request via Telegram",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Send Approval Request via Telegram": {
+   "main": [
+    [
+     {
+      "node": "Check Approval Sheet",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Check Approval Sheet": {
+   "main": [
+    [
+     {
+      "node": "Approved to Send?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Approved to Send?": {
+   "main": [
+    [
+     {
+      "node": "Choose Channel (Email or SMS)",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Log Not Sent — Awaiting Approval",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Choose Channel (Email or SMS)": {
+   "main": [
+    [
+     {
+      "node": "Send Win-Back SMS",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Send Win-Back Email",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Send Win-Back Email": {
+   "main": [
+    [
+     {
+      "node": "Wait 3 Days for Reply",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Send Win-Back SMS": {
+   "main": [
+    [
+     {
+      "node": "Wait 3 Days for Reply",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Wait 3 Days for Reply": {
+   "main": [
+    [
+     {
+      "node": "Check for Reply",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Check for Reply": {
+   "main": [
+    [
+     {
+      "node": "Customer Replied?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Customer Replied?": {
+   "main": [
+    [
+     {
+      "node": "Log Win-Back Outcome",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Escalate to Human — No Reply",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Log Win-Back Outcome": {
+   "main": [
+    [
+     {
+      "node": "Log Execution",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Escalate to Human — No Reply": {
+   "main": [
+    [
+     {
+      "node": "Log Execution",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Log Not Sent — Awaiting Approval": {
+   "main": [
+    [
+     {
+      "node": "Log Execution",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Error Trigger": {
+   "main": [
+    [
+     {
+      "node": "Log Error to Sheet",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Log Error to Sheet": {
+   "main": [
+    [
+     {
+      "node": "Notify Error via Telegram",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "active": false,
+ "settings": {
+  "executionOrder": "v1"
+ },
+ "pinData": {}
+}

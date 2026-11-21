@@ -1,0 +1,870 @@
+{
+  "name": "AI Podcast Factory \u2014 Siva",
+  "nodes": [
+    {
+      "id": "db67a30a-ad1e-49b0-9248-5237b8c2bd41",
+      "name": "Sticky Note \u2014 Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -320
+      ],
+      "parameters": {
+        "color": 4,
+        "content": "## AI Podcast Factory \u2014 setup\n1. Create the Google Sheet (tabs: Episodes, Pending Episodes, Execution Log, Errors) \u2014 see SETUP.md.\n2. Connect credentials: Google Sheets, Google Gemini API, Google Drive, Telegram.\n3. Paste your Sheet ID, RSS feed URL, ElevenLabs API key + voice ID, podcast-host URL and Drive folder ID where marked YOUR_*.\n4. Test with Manual Trigger first. Only then activate the schedule.",
+        "height": 260,
+        "width": 420
+      }
+    },
+    {
+      "id": "deb5c83e-3bbf-4683-9492-9971c3c49331",
+      "name": "Sticky Note \u2014 Rules",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        480,
+        -320
+      ],
+      "parameters": {
+        "color": 6,
+        "content": "## Hard rules (do not remove)\n- NOTHING is published without Siva tapping Publish on Telegram.\n- The TTS node needs Siva's own ElevenLabs API key \u2014 the placeholder key is not real.\n- The episode audio is saved to Drive first so Siva can listen before approving.\n- Social posts go out only after the episode is published, and only with Siva's approval.",
+        "height": 260,
+        "width": 420
+      }
+    },
+    {
+      "id": "614f82eb-2dc8-4471-bd65-ef3c14933a06",
+      "name": "Sticky Note \u2014 Memory",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        960,
+        -320
+      ],
+      "parameters": {
+        "color": 5,
+        "content": "## Memory / learning\nThe Episodes sheet is the memory layer: every episode's topics, script and\npublish decision is logged, so future scripts avoid repeating topics and\nSiva can see which episodes he approved or declined.",
+        "height": 260,
+        "width": 420
+      }
+    },
+    {
+      "id": "2ccb2b63-9ca3-4bd4-9ce3-02ef0a986905",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "0bf11dd5-0337-4e3f-b781-9512a557df09",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        240
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "expression": "0 6 * * *",
+              "field": "cronExpression"
+            }
+          ]
+        },
+        "timezone": "Asia/Kolkata"
+      },
+      "notes": "Runs daily at 06:00 IST. Manual Trigger is for testing."
+    },
+    {
+      "id": "0c154e2c-daee-41e8-bc08-b71c6523883e",
+      "name": "Read News RSS",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        240,
+        120
+      ],
+      "parameters": {
+        "feedUrl": "YOUR_RSS_FEED_URL"
+      },
+      "notes": "Daily news digest source. Replace YOUR_RSS_FEED_URL with a real feed (e.g. a tech/AI news RSS feed).",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "942ee534-015d-4d4d-9990-69175d5b6c26",
+      "name": "Collect Headlines",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        120
+      ],
+      "parameters": {
+        "jsCode": "// Collect the RSS items into one digest for the script writer.\n// No headline is invented \u2014 only items the feed actually returned.\nconst items = $input.all().map(i => i.json);\nconst digest = items.slice(0, 10).map((it, n) =>\n  (n + 1) + '. ' + (it.title || 'Untitled') + ' \u2014 ' + (it.link || it.guid || '')).join('\\n');\nreturn [{ json: { date: new Date().toISOString().slice(0, 10), count: items.length, digest } }];"
+      }
+    },
+    {
+      "id": "1f2b4d99-5ec0-4749-9c79-9f7a598e6f89",
+      "name": "Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        460,
+        340
+      ],
+      "parameters": {
+        "modelName": "models/gemini-2.0-flash",
+        "options": {}
+      },
+      "notes": "Free-tier Gemini model. Connect your Google Gemini API credential here."
+    },
+    {
+      "id": "86a4a5cb-9d7c-410e-8fd2-7026e3909caa",
+      "name": "Write Two-Host Script",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        680,
+        120
+      ],
+      "parameters": {
+        "options": {
+          "systemMessage": "You are a podcast scriptwriter for Siva's daily AI/tech news show. The show has two hosts: Siva (the main host, curious, direct, explains things simply) and a co-host who asks sharp questions and adds context. Write a natural conversational script, 8-10 minutes when read aloud (about 1,200-1,400 words). Use ONLY the headlines provided \u2014 never invent a news story, quote, number or source. If a headline is vague, say so in the script rather than filling in details. End with a short sign-off."
+        },
+        "promptType": "define",
+        "text": "=Today's news digest ({{ $json.date }}, {{ $json.count }} items):\n{{ $json.digest }}\n\nWrite the two-host script. Reply with ONLY this JSON, no other text: {\"title\": \"...\", \"topics\": [\"...\"], \"script\": \"Siva: ...\\nCo-host: ...\\n...\"}. Every line of the script must start with 'Siva:' or 'Co-host:'."
+      },
+      "notes": "Writes a two-host script from the real RSS digest only. Never invents news."
+    },
+    {
+      "id": "5331d51a-e9d3-4e9a-a5f6-8ec1149b44fb",
+      "name": "Parse Script",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        120
+      ],
+      "parameters": {
+        "jsCode": "// Parse the script JSON. On failure, keep the episode with an empty script\n// so the approval step shows the problem instead of publishing a guess.\nconst raw = $input.first().json.output || $input.first().json.text || '';\nconst prev = $('Collect Headlines').first().json;\nlet p = {};\ntry { p = JSON.parse(raw); } catch (e) {\n  const m = String(raw).match(/\\{[\\s\\S]*\\}/);\n  try { p = m ? JSON.parse(m[0]) : {}; } catch (e2) { p = {}; }\n}\nreturn [{ json: { ...prev, title: p.title || ('Daily AI News \u2014 ' + prev.date),\n  topics: p.topics || [], script: p.script || '', scriptOk: !!(p.script && p.script.length > 200) } }];"
+      }
+    },
+    {
+      "id": "2a23881f-167d-495e-badc-55d3dd50ecb9",
+      "name": "Script OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1120,
+        120
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "script-check",
+              "leftValue": "={{ $json.scriptOk }}",
+              "operator": {
+                "name": "filter.operator.boolean.true",
+                "operation": "true",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      },
+      "notes": "A broken/empty script never reaches TTS or publishing."
+    },
+    {
+      "id": "2d19abbc-4106-431e-b07d-28b90f07ced7",
+      "name": "Text-to-Speech (ElevenLabs)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1340,
+        40
+      ],
+      "parameters": {
+        "method": "POST",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \"{{ $json.script }}\",\n  \"model_id\": \"eleven_multilingual_v2\",\n  \"voice_settings\": { \"stability\": 0.5, \"similarity_boost\": 0.75 }\n}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "xi-api-key",
+              "value": "YOUR_ELEVENLABS_API_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "audio/mpeg"
+            }
+          ]
+        },
+        "url": "https://api.elevenlabs.io/v1/text-to-speech/YOUR_VOICE_ID"
+      },
+      "notes": "PLACEHOLDER CREDENTIAL: replace YOUR_ELEVENLABS_API_KEY and YOUR_VOICE_ID with Siva's own ElevenLabs key and voice. Long scripts may exceed TTS limits \u2014 split the script first if the call fails.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "b8df231c-e3a7-4c7f-a297-5b4a517d8a71",
+      "name": "Save Episode Audio to Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1560,
+        40
+      ],
+      "parameters": {
+        "operation": "upload",
+        "binaryPropertyName": "data",
+        "fileName": "= {{ $('Parse Script').first().json.title }}.mp3",
+        "options": {
+          "parentFolderId": "YOUR_DRIVE_FOLDER_ID"
+        },
+        "resource": "file"
+      },
+      "notes": "Audio lands in Drive so Siva can listen before approving.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "e58634a6-a67a-44d6-9920-96c5f1fa1811",
+      "name": "Queue Episode for Approval",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        1780,
+        40
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Pending Episodes",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Date"
+          ],
+          "schema": [],
+          "value": {
+            "Date": "={{ $('Parse Script').first().json.date }}",
+            "Title": "={{ $('Parse Script').first().json.title }}",
+            "Topics": "={{ $('Parse Script').first().json.topics.join(', ') }}",
+            "Drive Audio": "={{ $json.name || $json.id || '' }}",
+            "Status": "awaiting approval",
+            "Queued At": "={{ $now.toISO() }}"
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "b853b5dc-f69d-45c9-85db-f172592d6f27",
+      "name": "Telegram: Approve Episode?",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2000,
+        40
+      ],
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=New episode ready for your approval\n\n{{ $('Parse Script').first().json.title }}\nTopics: {{ $('Parse Script').first().json.topics.join(', ') }}\n\nAudio is saved in Google Drive \u2014 listen first. Tap Publish only if you are happy with it. Nothing is published until you tap.",
+        "additionalFields": {
+          "reply_markup": {
+            "inline_keyboard": [
+              [
+                {
+                  "text": "\ud83c\udf99 Publish",
+                  "callback_data": "publish"
+                },
+                {
+                  "text": "\u274c Decline",
+                  "callback_data": "decline"
+                }
+              ]
+            ]
+          }
+        }
+      },
+      "notes": "HUMAN APPROVAL STEP. Nothing is published until Siva taps Publish.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "5ee5c1c3-b420-4e98-bccd-b470c0e86f2a",
+      "name": "Log Execution",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        2220,
+        40
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Execution Log",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "At"
+          ],
+          "schema": [],
+          "value": {
+            "At": "={{ $now.toISO() }}",
+            "Workflow": "AI Podcast Factory \u2014 Siva",
+            "Status": "={{ $json.status || 'completed' }}",
+            "Detail": "= $('Parse Script').first().json.title"
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "4cc785f2-7ec8-4d11-8373-c5f849eb8d86",
+      "name": "Telegram Trigger (Buttons)",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        560
+      ],
+      "parameters": {
+        "updates": [
+          "callback_query"
+        ]
+      },
+      "notes": "Fires when Siva taps Publish or Decline on an episode approval message."
+    },
+    {
+      "id": "9d51a5fb-0dde-48c7-a5c6-bc362dc2e7af",
+      "name": "Parse Callback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        560
+      ],
+      "parameters": {
+        "jsCode": "// Parse a Telegram callback_query. The message text carries the episode title.\nconst u = $input.first().json;\nconst cb = u.callback_query || {};\nconst msg = (cb.message && cb.message.text) || '';\nconst title = (msg.split('\\n').find(l => l.trim() && !l.startsWith('New episode')) || '').trim();\nreturn [{ json: { action: cb.data || '',\n  chatId: (cb.message && cb.message.chat && cb.message.chat.id) || 'YOUR_TELEGRAM_CHAT_ID',\n  title, messageText: msg } }];"
+      }
+    },
+    {
+      "id": "a93341c7-3d9e-49cc-91b3-1e81386bf8fc",
+      "name": "Publish?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        560
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "publish-check",
+              "leftValue": "={{ $json.action === 'publish' }}",
+              "operator": {
+                "name": "filter.operator.boolean.true",
+                "operation": "true",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "58eaac6a-a67d-4bf4-98aa-3a8e052a531b",
+      "name": "Publish to Podcast Host",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        480
+      ],
+      "parameters": {
+        "method": "POST",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"title\": \"{{ $json.title }}\",\n  \"audioDriveFile\": \"see Pending Episodes sheet \u2014 upload the Drive audio file to your host\",\n  \"description\": \"Daily AI/tech news, two-host show by Sivasai Boggu\"\n}",
+        "url": "YOUR_PODCAST_HOST_UPLOAD_URL"
+      },
+      "notes": "PLACEHOLDER: replace YOUR_PODCAST_HOST_UPLOAD_URL with the real upload endpoint of Siva's podcast host (e.g. Anchor/Spotify for Podcasters, Buzzsprout). The Drive audio file is attached manually or via the host's API \u2014 see SETUP.md.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "bfd32968-09c4-4ef1-a926-a627908b43db",
+      "name": "Post Link on Social",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        480
+      ],
+      "parameters": {
+        "method": "POST",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \"New episode out now: {{ $json.title }} \u2014 daily AI/tech news in two voices. Link in bio.\"\n}",
+        "url": "YOUR_SOCIAL_POST_API_URL"
+      },
+      "notes": "PLACEHOLDER: replace YOUR_SOCIAL_POST_API_URL with the real posting endpoint (e.g. Buffer/X API) once Siva connects it. Only runs after Publish, never before approval.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "ab4fee54-a174-4dd2-9a4d-d2728d66c75e",
+      "name": "Log Published Episode",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        480
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Episodes",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Date"
+          ],
+          "schema": [],
+          "value": {
+            "Date": "={{ $now.toISO() }}",
+            "Title": "={{ $json.title }}",
+            "Status": "published",
+            "Published At": "={{ $now.toISO() }}"
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "b02f3967-c14f-4b64-8223-a9af8b006463",
+      "name": "Telegram: Episode Live",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1440,
+        480
+      ],
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Episode published \ud83c\udf99\n\n{{ $json.title }}\n\nCheck your podcast host dashboard for the live link, then share it. Social post sent via the connected posting API.",
+        "additionalFields": {}
+      },
+      "notes": "Confirmation only \u2014 the publish already happened on Siva's tap.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "35ea92a9-a9eb-4eeb-92e9-54b494c4b674",
+      "name": "Log Declined Episode",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        680
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Episodes",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Date"
+          ],
+          "schema": [],
+          "value": {
+            "Date": "={{ $now.toISO() }}",
+            "Title": "={{ $json.title }}",
+            "Status": "declined by Siva",
+            "Published At": ""
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "205baddc-e45a-4faf-96ca-650660a6bf47",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        900
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "4e3fd747-6af6-44a9-b2a8-ca6862d3e3ce",
+      "name": "Log Error to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        900
+      ],
+      "parameters": {
+        "documentId": "YOUR_GOOGLE_SHEET_ID",
+        "operation": "append",
+        "options": {},
+        "resource": "sheet",
+        "sheetName": "Errors",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "At"
+          ],
+          "schema": [],
+          "value": {
+            "At": "={{ $now.toISO() }}",
+            "Error": "={{ $json.error?.message || JSON.stringify($json.error || $json) }}",
+            "Node": "={{ $json.execution?.lastNodeExecuted || $json.node || 'unknown' }}",
+            "Workflow": "AI Podcast Factory \u2014 Siva"
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "e5b90a25-4518-48f9-98f9-e20dc56e8ba7",
+      "name": "Notify Siva (Error)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        900
+      ],
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Workflow AI Podcast Factory \u2014 Siva hit an error.\n\nNode: {{ $json.execution?.lastNodeExecuted || 'unknown' }}\nError: {{ $json.error?.message || 'see Errors sheet' }}",
+        "additionalFields": {}
+      },
+      "notes": "Error alert only \u2014 never sends business content.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read News RSS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read News RSS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read News RSS": {
+      "main": [
+        [
+          {
+            "node": "Collect Headlines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Headlines": {
+      "main": [
+        [
+          {
+            "node": "Write Two-Host Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Write Two-Host Script",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Two-Host Script": {
+      "main": [
+        [
+          {
+            "node": "Parse Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Script": {
+      "main": [
+        [
+          {
+            "node": "Script OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Script OK?": {
+      "main": [
+        [
+          {
+            "node": "Text-to-Speech (ElevenLabs)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Text-to-Speech (ElevenLabs)": {
+      "main": [
+        [
+          {
+            "node": "Save Episode Audio to Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Episode Audio to Drive": {
+      "main": [
+        [
+          {
+            "node": "Queue Episode for Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Queue Episode for Approval": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Approve Episode?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram: Approve Episode?": {
+      "main": [
+        [
+          {
+            "node": "Log Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Trigger (Buttons)": {
+      "main": [
+        [
+          {
+            "node": "Parse Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Callback": {
+      "main": [
+        [
+          {
+            "node": "Publish?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish?": {
+      "main": [
+        [
+          {
+            "node": "Publish to Podcast Host",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Declined Episode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish to Podcast Host": {
+      "main": [
+        [
+          {
+            "node": "Post Link on Social",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Link on Social": {
+      "main": [
+        [
+          {
+            "node": "Log Published Episode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Published Episode": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Episode Live",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Log Error to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Error to Sheet": {
+      "main": [
+        [
+          {
+            "node": "Notify Siva (Error)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

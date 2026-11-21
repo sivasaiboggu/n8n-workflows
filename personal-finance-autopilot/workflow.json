@@ -1,0 +1,799 @@
+{
+  "name": "Personal Finance Autopilot \u2014 Siva",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "Personal Finance Autopilot \u2014 Siva\nBank/Stripe webhook + weekly schedule \u2192 Gemini categorises transactions, flags unusual spend, updates the Sheet dashboard \u2192 weekly summary email with GENERIC budgeting advice only. No real bank credentials \u2014 webhook payload only, placeholders everywhere.",
+        "height": 120,
+        "width": 480
+      },
+      "id": "043fe593-defd-4fb4-ad6c-1026b331c15a",
+      "name": "Sticky Note \u2014 Flow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "MEMORY LAYER (no live DB): the Finance sheet is the memory \u2014 Transactions tab (every categorised transaction) + Dashboard tab (monthly totals by category). Gemini / the weekly summary read past rows for averages. Postgres/vector store can replace the sheet later; do not invent a live DB connection. No financial advice beyond generic budgeting.",
+        "height": 120,
+        "width": 480
+      },
+      "id": "d1681165-f735-4289-934f-b8c9054a8bf4",
+      "name": "Sticky Note \u2014 Memory Layer",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "CREDENTIALS NEEDED (pick/create on import \u2014 no credential is set in this file):\n- Google Sheets (OAuth2) \u2014 Update Sheet Dashboard, Read This Week's Transactions, Save Weekly Draft, Log Error to Sheet, Log Execution, Log Weekly Execution\n- Slack API \u2014 Flag Unusual Spend, Notify on Error\n- Telegram API \u2014 Send Approval Request\n- Gmail (OAuth2) \u2014 Send Weekly Summary Email (to sivasaiboggu@gmail.com)\n- Google Gemini (PaLM) API \u2014 Gemini Chat Model, Gemini Chat Model (Weekly)\n- No bank/Stripe credential \u2014 transactions arrive via webhook payload only",
+        "height": 120,
+        "width": 480
+      },
+      "id": "09b9afae-5519-4fbe-a237-115d3b40b475",
+      "name": "Sticky Note \u2014 Credentials",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "finance-transaction",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "f8d8f3bf-394f-4275-be10-56cdc8604c79",
+      "name": "Webhook \u2014 Transaction",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "if (typeof $json.amount !== 'number') throw new Error('Transaction needs a numeric amount');\nreturn [{ json: { amount: $json.amount, currency: $json.currency || 'INR', merchant: $json.merchant || '', description: $json.description || '', date: $json.date || $now.toISO() } }];"
+      },
+      "id": "5d1ec198-2769-4e92-ac80-2ac25812d94a",
+      "name": "Validate Transaction",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "model": "gemini-2.0-flash",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "b37aecda-b1f1-449a-baf4-e7d3a31c8878",
+      "name": "Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        480,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Categorise this transaction into one of: Food, Transport, Subscriptions, Shopping, Bills, Income, Other. Transaction: {{ $json }}. Flag unusual_spend=true only if the amount is far above Siva's usual spend for that category (use the sheet history if supplied). Return JSON: {category, unusual_spend, reason}. Generic budgeting only \u2014 no personal financial advice.",
+        "options": {
+          "systemMessage": "You categorise transactions. You give generic budgeting observations only \u2014 never personal financial advice, investment advice or recommendations."
+        }
+      },
+      "id": "3ede276c-7748-434d-88da-8d715cf1dbfe",
+      "name": "Categorise Transaction (Gemini Agent)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.unusual_spend }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true
+      },
+      "id": "f9969e54-c3b2-4531-8d92-9797c82eed62",
+      "name": "Unusual Spend?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        720,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "postMessage",
+        "channel": "YOUR_SLACK_CHANNEL_ID",
+        "text": "=Unusual spend flagged: {{ $json.merchant }} \u2014 {{ $json.amount }} {{ $json.currency }} ({{ $json.category }}). Reason: {{ $json.reason }}. No money was moved; this is an alert only.",
+        "otherOptions": {}
+      },
+      "id": "bcc8373b-61bc-453a-81ae-03e73a99723a",
+      "name": "Flag Unusual Spend (Slack)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [
+        960,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_FINANCE_SHEET_ID",
+        "sheetName": "Transactions",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "date": "={{ $json.date }}",
+            "merchant": "={{ $json.merchant }}",
+            "amount": "={{ $json.amount }}",
+            "currency": "={{ $json.currency }}",
+            "category": "={{ $json.category }}",
+            "unusual": "={{ $json.unusual_spend }}"
+          }
+        }
+      },
+      "id": "fabe3d0f-15f0-4a5e-85b2-c0f803f364c1",
+      "name": "Update Sheet Dashboard",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        1200,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_FINANCE_SHEET_ID",
+        "sheetName": "Transactions",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "date": "={{ $json.date }}",
+            "merchant": "={{ $json.merchant }}",
+            "amount": "={{ $json.amount }}",
+            "currency": "={{ $json.currency }}",
+            "category": "={{ $json.category }}",
+            "unusual": "={{ $json.unusual_spend }}"
+          }
+        }
+      },
+      "id": "ec39fbf8-9d74-48be-8e98-93f2ddbcb55a",
+      "name": "Update Sheet Dashboard (normal)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        960,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "options": {}
+      },
+      "id": "0a52258c-dfce-4886-9a4f-b121d931a907",
+      "name": "Merge Transactions",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1440,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_EXECUTION_LOG_SHEET_ID",
+        "sheetName": "Log",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow": "Personal Finance Autopilot",
+            "status": "={{ $json.status || 'done' }}",
+            "detail": "={{ $json.merchant || '' }} {{ $json.amount || '' }}"
+          }
+        }
+      },
+      "id": "c1808d7e-1767-4680-951a-541da45eba05",
+      "name": "Log Execution",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        1680,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 18 * * 0"
+            }
+          ]
+        }
+      },
+      "id": "9b3cb208-29b4-4257-8c92-3ca328de74c9",
+      "name": "Weekly Summary \u2014 Sundays",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": "YOUR_FINANCE_SHEET_ID",
+        "sheetName": "Transactions"
+      },
+      "id": "f30788ad-64a2-4b62-867d-71c66d2201a1",
+      "name": "Read This Week's Transactions",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        240,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "model": "gemini-2.0-flash",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "1700e5e9-b496-4331-8c8b-37c6b30cec39",
+      "name": "Gemini Chat Model (Weekly)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        480,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Write a weekly summary from these transactions: {{ $json }}. Include total spend by category, the largest items, and GENERIC budgeting tips only (e.g. review subscriptions). No personal financial advice, no investment advice, no recommendations about specific products.",
+        "options": {
+          "systemMessage": "You write weekly spend summaries with generic budgeting tips only. Never give personal financial or investment advice."
+        }
+      },
+      "id": "0209c977-bf5f-45b1-86a9-509c6223fc92",
+      "name": "Write Weekly Summary (Gemini Agent)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        480,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_FINANCE_SHEET_ID",
+        "sheetName": "Weekly Summaries",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "week": "={{ $now.toISO() }}",
+            "summary": "={{ $json.output }}",
+            "status": "draft \u2014 awaiting approval"
+          }
+        }
+      },
+      "id": "c178809f-1f42-42cc-af42-f2cd6c27ea8f",
+      "name": "Save Weekly Draft",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        720,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Weekly finance summary draft:\n{{ $json.output }}\nReply APPROVE to email it to yourself, or REJECT to keep it as a draft.",
+        "additionalFields": {}
+      },
+      "id": "b09f5a33-dae3-4e7e-9f90-707ce346a320",
+      "name": "Send Approval Request",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        960,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 24,
+        "unit": "hours"
+      },
+      "id": "69979b51-5ffd-4a45-8118-34ad29118342",
+      "name": "Wait for Approval",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.approved }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true
+      },
+      "id": "0c7e5883-9a9e-4c20-8399-8db93826da5f",
+      "name": "Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "sendTo": "sivasaiboggu@gmail.com",
+        "subject": "=Weekly finance summary \u2014 {{ $now.toISO() }}",
+        "emailType": "text",
+        "message": "=Your weekly summary (approved):\n{{ $json.output }}\nGeneric budgeting tips only \u2014 not personal financial advice.",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "ff3e9db2-6b27-471b-8351-47ad3baf801f",
+      "name": "Send Weekly Summary Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1680,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "6e3d09c8",
+              "name": "status",
+              "value": "weekly summary draft only \u2014 not approved to email",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "8c818806-9b05-4802-b592-49d92ef68bf6",
+      "name": "Log Skipped",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1680,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "options": {}
+      },
+      "id": "b5c02172-2621-45d2-b669-abca1b06c20b",
+      "name": "Merge Weekly",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1920,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_EXECUTION_LOG_SHEET_ID",
+        "sheetName": "Log",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow": "Personal Finance Autopilot (weekly)",
+            "status": "={{ $json.status || 'done' }}",
+            "detail": "weekly summary"
+          }
+        }
+      },
+      "id": "d77d92fa-3f03-4b72-8e9b-0d36b3d66f88",
+      "name": "Log Weekly Execution",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        2160,
+        600
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "356a931e-8e4d-4e6d-83c1-5c9e199c20d9",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_ERROR_LOG_SHEET_ID",
+        "sheetName": "Errors",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow": "={{ $json.workflow?.name }}",
+            "node": "={{ $json.execution?.lastNodeExecuted }}",
+            "error": "={{ $json.execution?.error }}",
+            "execution_id": "={{ $json.execution?.id }}"
+          }
+        }
+      },
+      "id": "0c32274e-09d1-4c6d-ae9e-75a597139622",
+      "name": "Log Error to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        240,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "postMessage",
+        "channel": "YOUR_SLACK_CHANNEL_ID",
+        "text": "=Personal Finance Autopilot FAILED: {{ $json.error }}",
+        "otherOptions": {}
+      },
+      "id": "f95d7a82-f938-46e0-b3c7-4fc9f19a6f8d",
+      "name": "Notify on Error (Slack)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [
+        480,
+        900
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook \u2014 Transaction": {
+      "main": [
+        [
+          {
+            "node": "Validate Transaction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Transaction": {
+      "main": [
+        [
+          {
+            "node": "Categorise Transaction (Gemini Agent)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Categorise Transaction (Gemini Agent)": {
+      "main": [
+        [
+          {
+            "node": "Unusual Spend?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flag Unusual Spend (Slack)": {
+      "main": [
+        [
+          {
+            "node": "Update Sheet Dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Sheet Dashboard": {
+      "main": [
+        [
+          {
+            "node": "Merge Transactions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Sheet Dashboard (normal)": {
+      "main": [
+        [
+          {
+            "node": "Merge Transactions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Transactions": {
+      "main": [
+        [
+          {
+            "node": "Log Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weekly Summary \u2014 Sundays": {
+      "main": [
+        [
+          {
+            "node": "Read This Week's Transactions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read This Week's Transactions": {
+      "main": [
+        [
+          {
+            "node": "Write Weekly Summary (Gemini Agent)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Weekly Summary (Gemini Agent)": {
+      "main": [
+        [
+          {
+            "node": "Save Weekly Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Weekly Draft": {
+      "main": [
+        [
+          {
+            "node": "Send Approval Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Approval Request": {
+      "main": [
+        [
+          {
+            "node": "Wait for Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Approval": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Weekly Summary Email": {
+      "main": [
+        [
+          {
+            "node": "Merge Weekly",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Skipped": {
+      "main": [
+        [
+          {
+            "node": "Merge Weekly",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Weekly": {
+      "main": [
+        [
+          {
+            "node": "Log Weekly Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Categorise Transaction (Gemini Agent)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Chat Model (Weekly)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Write Weekly Summary (Gemini Agent)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unusual Spend?": {
+      "main": [
+        [
+          {
+            "node": "Flag Unusual Spend (Slack)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Sheet Dashboard (normal)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Send Weekly Summary Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Log Error to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Error to Sheet": {
+      "main": [
+        [
+          {
+            "node": "Notify on Error (Slack)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

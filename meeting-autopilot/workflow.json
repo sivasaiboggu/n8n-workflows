@@ -1,0 +1,613 @@
+{
+  "name": "Meeting Autopilot \u2014 Siva",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "5f0908d2-7043-5615-b3ba-714d717a1f49",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "calendarId": "YOUR_CALENDAR_ID",
+        "triggerOn": "eventStarted",
+        "options": {}
+      },
+      "id": "f504e3c6-5cbc-572a-9b00-8603292726f5",
+      "name": "Calendar Trigger",
+      "type": "n8n-nodes-base.googleCalendarTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalise calendar event. Attendees come only from the calendar event \u2014 never invented.\nconst j = $input.first().json;\nreturn [{json:{meeting_id: j.id || '', title: j.summary || j.title || 'Untitled meeting', start: j.start?.dateTime || j.start || '', attendees: (j.attendees || []).map(a=>a.email).filter(Boolean), transcript: ''}}];"
+      },
+      "id": "ba340564-a17b-55ac-b496-d025ddf9a404",
+      "name": "Get Meeting Details",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.fireflies.ai/graphql",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "= {\"query\": \"query { transcript(id: \\\"{{ $json.meeting_id }}\\\") { sentences { text speaker } } }\"}"
+      },
+      "id": "baea104a-0f65-5cde-be7b-3de566ee3990",
+      "name": "Fetch Transcript",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "model": "gemini-2.0-flash",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "cdc3f7f8-a453-5d35-b6bf-bb4215d16661",
+      "name": "Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        480,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=From this meeting transcript, extract decisions and action items. Meeting: {{ $json.title }}. Transcript (may be empty if Fireflies/Recall has no recording yet \u2014 if empty, say so and extract nothing): {{ JSON.stringify($json) }}. Return JSON only: {\"decisions\": [\"...\"], \"actions\": [{\"task\": \"\", \"owner\": \"\", \"deadline\": \"\"}]}. Owners must be attendees of this meeting; if the owner is unclear, set owner to 'unassigned'. Never invent attendees, deadlines or decisions.",
+        "options": {
+          "systemMessage": "You are helping Siva (Sivasai Boggu). Never invent facts, emails, prices or sources. If you do not know, say so."
+        }
+      },
+      "id": "ba2f6f6d-36b2-57a8-98c7-4547d7f37b8b",
+      "name": "Extract Actions Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        480,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $input.first().json.output || $input.first().json;\nlet body = 'Meeting summary \u2014 ' + ($input.first().json.title || '') + '\\n\\nDecisions:\\n' + (j.decisions||[]).map(d=>'- '+d).join('\\n') + '\\n\\nAction items:\\n' + (j.actions||[]).map(a=>`- ${a.task} \u2014 ${a.owner} \u2014 due ${a.deadline||'TBC'}`).join('\\n');\nreturn [{json:{...$input.first().json, summary_body: body, actions: j.actions||[], decisions: j.decisions||[]}}];"
+      },
+      "id": "0eec0272-6669-5cb5-b009-88e38f804bbc",
+      "name": "Draft Meeting Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Approval needed: meeting summary email to attendees (see Draft Meeting Summary). Reply APPROVED in the Approval sheet (tab Approvals, key=latest, value=approved) or edit the row. Workflow waits 60 min, then checks the sheet."
+      },
+      "id": "59df7d97-9a0c-5a94-83c9-713059850ffe",
+      "name": "Send Approval Request",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        960,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 60,
+        "unit": "minutes"
+      },
+      "id": "9c744b52-79c6-5bfa-9b54-b939334039e2",
+      "name": "Wait for Approval",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "lookup",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Approvals",
+          "mode": "list",
+          "cachedResultName": "Approvals"
+        },
+        "lookupColumn": "key",
+        "lookupValue": "latest"
+      },
+      "id": "bc6d8711-9791-5967-84fe-1be045e12317",
+      "name": "Read Approval Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "approval-approved",
+              "leftValue": "={{ ($json.value || '').toLowerCase() === 'approved' }}",
+              "operator": {
+                "name": "filter.operator.boolean.true",
+                "operation": "true",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        },
+        "options": {}
+      },
+      "id": "d3b264a1-04e3-5484-b8f8-a1677a87f2fa",
+      "name": "Approval Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $json.attendees.join(', ') }}",
+        "subject": "=Meeting summary: {{ $json.title }}",
+        "emailType": "text",
+        "message": "= {{ $json.summary_body }} \n\n\u2014 Sent after human approval."
+      },
+      "id": "8e83286c-6cc5-5d82-bb81-df91df70fb0f",
+      "name": "Send Summary Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1920,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Tasks",
+          "mode": "list",
+          "cachedResultName": "Tasks"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "task": "={{ $json.actions.map(a=>a.task).join('; ') }}",
+            "owner": "={{ $json.actions.map(a=>a.owner).join('; ') }}",
+            "deadline": "={{ $json.actions.map(a=>a.deadline).join('; ') }}",
+            "meeting": "={{ $json.title }}"
+          },
+          "matchingColumns": [
+            "task",
+            "owner",
+            "deadline",
+            "meeting"
+          ],
+          "schema": []
+        }
+      },
+      "id": "2eaf123d-2ea6-56c1-bcd3-3b3fdae22c70",
+      "name": "Create Tasks in Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append"
+      },
+      "id": "fac30d74-d8ed-5995-ac8e-0a9e6e5742c6",
+      "name": "Merge Outcomes",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        2400,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Execution Log",
+          "mode": "list",
+          "cachedResultName": "Execution Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now }}",
+            "workflow": "={{ $workflow.name }}",
+            "status": "success",
+            "summary": "={{ $json.title }}"
+          },
+          "matchingColumns": [
+            "timestamp",
+            "workflow",
+            "status",
+            "summary"
+          ],
+          "schema": []
+        }
+      },
+      "id": "08161b2f-c312-5a81-a5be-070322673292",
+      "name": "Log Execution",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        2640,
+        120
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "d459ff4a-e341-5a64-a833-00ac747f8527",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Error Log",
+          "mode": "list",
+          "cachedResultName": "Error Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now }}",
+            "workflow": "={{ $json.workflow?.name }}",
+            "error": "={{ $json.error?.message }}",
+            "node": "={{ $json.node?.name }}"
+          },
+          "matchingColumns": [
+            "timestamp",
+            "workflow",
+            "error",
+            "node"
+          ],
+          "schema": []
+        }
+      },
+      "id": "fdc7d3c0-d6fe-5b3b-9e57-ced88570a8c0",
+      "name": "Log Error to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=\u26a0\ufe0f n8n error in {{ $json.workflow?.name }}: {{ $json.error?.message }}. Logged to sheet."
+      },
+      "id": "faabc425-5cfc-51f6-86e3-3c080a40a649",
+      "name": "Notify Siva \u2014 Error",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Meeting Autopilot \u2014 Siva\nCalendar trigger \u2192 Fireflies/Recall transcript (placeholder credential) \u2192 Gemini extracts decisions + action items with owners/deadlines \u2192 HUMAN APPROVAL (Telegram + Approval sheet) \u2192 summary email to attendees \u2192 tasks created in Sheets (Todoist optional, see SETUP). No summary is emailed without approval.",
+        "height": 180,
+        "width": 420
+      },
+      "id": "5de58ea3-f557-5799-b7d3-6069401357f3",
+      "name": "Sticky Note \u2014 Flow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "content": "MEMORY: no live DB. Store per meeting in the Meetings sheet tab: meeting, attendees, decisions, actions, owner, deadline, done? Future runs should check open actions from past meetings before drafting a follow-up. If a transcript is missing, the workflow logs that and extracts nothing.",
+        "height": 180,
+        "width": 420
+      },
+      "id": "86c0c4f8-f985-5334-8269-fe2a8fb8de16",
+      "name": "Sticky Note \u2014 Memory Layer",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        480,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "content": "CREDENTIALS NEEDED (pick/create on import \u2014 no credential is set in this file):\n\u2022 Calendar Trigger \u2192 Google Calendar account\n\u2022 Gemini Chat Model \u2192 Google Gemini API\n\u2022 Fetch Transcript \u2192 Fireflies API Key (HTTP Header Auth; Recall.ai instead if you use Recall)\n\u2022 Send Approval Request / Notify Siva \u2014 Error \u2192 Telegram account\n\u2022 Send Summary Email \u2192 Gmail account (sivasaiboggu@gmail.com)\n\u2022 Read Approval Sheet / Create Tasks in Sheets / Log Execution / Log Error to Sheet \u2192 Google Sheets account\nSee SETUP.md \u00a72 for how to create each one.",
+        "height": 260,
+        "width": 420
+      },
+      "id": "d22bac29-7ea1-54eb-9b28-62fe38ba66cb",
+      "name": "Sticky Note \u2014 Credentials",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        960,
+        -320
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Meeting Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calendar Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Meeting Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Meeting Details": {
+      "main": [
+        [
+          {
+            "node": "Fetch Transcript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Transcript": {
+      "main": [
+        [
+          {
+            "node": "Extract Actions Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Extract Actions Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Actions Agent": {
+      "main": [
+        [
+          {
+            "node": "Draft Meeting Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft Meeting Summary": {
+      "main": [
+        [
+          {
+            "node": "Send Approval Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Approval Request": {
+      "main": [
+        [
+          {
+            "node": "Wait for Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Approval": {
+      "main": [
+        [
+          {
+            "node": "Read Approval Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Approval Sheet": {
+      "main": [
+        [
+          {
+            "node": "Approval Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval Approved?": {
+      "main": [
+        [
+          {
+            "node": "Send Summary Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge Outcomes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Summary Email": {
+      "main": [
+        [
+          {
+            "node": "Create Tasks in Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Tasks in Sheets": {
+      "main": [
+        [
+          {
+            "node": "Merge Outcomes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Outcomes": {
+      "main": [
+        [
+          {
+            "node": "Log Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Log Error to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Error to Sheet": {
+      "main": [
+        [
+          {
+            "node": "Notify Siva \u2014 Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

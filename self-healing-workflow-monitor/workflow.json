@@ -1,0 +1,458 @@
+{
+  "name": "Self-Healing Workflow Monitor \u2014 Siva",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "Self-Healing Workflow Monitor \u2014 Siva\nError Trigger fires on any workflow failure \u2192 Gemini reads the error and the failing node and suggests a fix \u2192 diagnosis is logged and posted to Slack with a retry option. A human must approve the retry. Fixes are NEVER auto-applied.",
+        "height": 120,
+        "width": 480
+      },
+      "id": "c98e6ab5-5a2f-4467-a736-78237a659100",
+      "name": "Sticky Note \u2014 Flow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "MEMORY LAYER (no live DB): the Diagnosis Log sheet is the memory \u2014 one row per failure (workflow, node, error, suggested fix, outcome). Gemini prompts include past rows so repeat failures are recognised. Postgres/vector store can replace the sheet later; do not invent a live DB connection.",
+        "height": 120,
+        "width": 480
+      },
+      "id": "fa2943d6-56a3-4473-bf41-9ddf853db151",
+      "name": "Sticky Note \u2014 Memory Layer",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "CREDENTIALS NEEDED (pick/create on import \u2014 no credential is set in this file):\n- Google Sheets (OAuth2) \u2014 Log Error to Sheet, Log Diagnosis to Sheet, Log Execution\n- Slack API \u2014 Post Slack Alert with Retry Option\n- n8n API key \u2014 Retry Execution via n8n API (set YOUR_N8N_HOST)\n- Google Gemini (PaLM) API \u2014 Gemini Chat Model",
+        "height": 120,
+        "width": 480
+      },
+      "id": "33eceb76-2464-431a-a5bd-80b98fef1efa",
+      "name": "Sticky Note \u2014 Credentials",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "d6d67ff8-2a0c-497f-a074-269e42edacc7",
+      "name": "Manual Trigger (Test)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        100
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "96400c71-41eb-4418-b472-e98d7f248d0d",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_ERROR_LOG_SHEET_ID",
+        "sheetName": "Errors",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow": "={{ $json.workflow?.name }}",
+            "node": "={{ $json.execution?.lastNodeExecuted }}",
+            "error": "={{ $json.execution?.error }}",
+            "execution_id": "={{ $json.execution?.id }}"
+          }
+        }
+      },
+      "id": "111c8beb-7edf-4431-8f8b-df882c96b5e0",
+      "name": "Log Error to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "model": "gemini-2.0-flash",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "9ace7202-2adf-4abd-ade4-d1869f68af40",
+      "name": "Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        480,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Read this n8n failure and suggest a fix. Workflow: {{ $json.workflow }}. Failing node: {{ $json.node }}. Error: {{ $json.error }}. Execution: {{ $json.execution_id }}. Return JSON: {cause, suggested_fix, confidence, safe_to_retry}. Suggest ONLY \u2014 never claim the fix was applied. If the cause is unclear, say so.",
+        "options": {
+          "systemMessage": "You diagnose n8n failures and suggest fixes. You never apply a fix and never claim one was applied. If unsure, say so."
+        }
+      },
+      "id": "e4711c1f-2841-4a39-baef-fa5753435b6d",
+      "name": "Diagnose Error & Suggest Fix (Gemini Agent)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_ERROR_LOG_SHEET_ID",
+        "sheetName": "Diagnoses",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow": "={{ $json.workflow }}",
+            "node": "={{ $json.node }}",
+            "error": "={{ $json.error }}",
+            "suggested_fix": "={{ $json.output }}",
+            "status": "awaiting human decision"
+          }
+        }
+      },
+      "id": "dbca7185-7020-423d-b1fd-a58382122cb8",
+      "name": "Log Diagnosis to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        720,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "postMessage",
+        "channel": "YOUR_SLACK_CHANNEL_ID",
+        "text": "=Workflow failed: {{ $json.workflow }} (node {{ $json.node }})\nError: {{ $json.error }}\nSuggested fix (NOT applied): {{ $json.output }}\nReply RETRY to re-run the execution, or IGNORE to leave it. No fix is applied automatically.",
+        "otherOptions": {}
+      },
+      "id": "f771857c-351f-485c-af80-e90ad73e6b78",
+      "name": "Post Slack Alert with Retry Option",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 4,
+        "unit": "hours"
+      },
+      "id": "08b7ae9f-ea7c-40a5-be51-342842ddd6e7",
+      "name": "Wait for Human Decision",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.approved }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true
+      },
+      "id": "ea3acc01-9f07-42b2-9fe3-5abaa0584de8",
+      "name": "Retry Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR_N8N_HOST/api/v1/executions/{{ $json.execution_id }}/retry",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{}"
+      },
+      "id": "79a1b697-c8b4-4af9-8fd9-d761681973f5",
+      "name": "Retry Execution via n8n API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d9bbd32c",
+              "name": "status",
+              "value": "no retry \u2014 human decision",
+              "type": "string"
+            },
+            {
+              "id": "aa108377",
+              "name": "fix_applied",
+              "value": "No \u2014 suggestion only",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "33cfbf73-0b63-49a0-8a82-9e6a70fac67f",
+      "name": "Log Decision \u2014 No Retry",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1680,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "options": {}
+      },
+      "id": "f1bd4322-c1cc-476c-bcd4-ef5adf810d66",
+      "name": "Merge Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1920,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_EXECUTION_LOG_SHEET_ID",
+        "sheetName": "Log",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow": "Self-Healing Workflow Monitor",
+            "status": "={{ $json.status || 'done' }}",
+            "detail": "={{ $json.workflow || '' }}"
+          }
+        }
+      },
+      "id": "02f89ad3-027f-4427-8f2c-22584a32396b",
+      "name": "Log Execution",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        2160,
+        180
+      ]
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Log Error to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Error to Sheet": {
+      "main": [
+        [
+          {
+            "node": "Diagnose Error & Suggest Fix (Gemini Agent)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Diagnose Error & Suggest Fix (Gemini Agent)": {
+      "main": [
+        [
+          {
+            "node": "Log Diagnosis to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Diagnosis to Sheet": {
+      "main": [
+        [
+          {
+            "node": "Post Slack Alert with Retry Option",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Slack Alert with Retry Option": {
+      "main": [
+        [
+          {
+            "node": "Wait for Human Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Human Decision": {
+      "main": [
+        [
+          {
+            "node": "Retry Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry Execution via n8n API": {
+      "main": [
+        [
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Decision \u2014 No Retry": {
+      "main": [
+        [
+          {
+            "node": "Merge Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Results": {
+      "main": [
+        [
+          {
+            "node": "Log Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger (Test)": {
+      "main": [
+        [
+          {
+            "node": "Log Error to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Diagnose Error & Suggest Fix (Gemini Agent)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry Approved?": {
+      "main": [
+        [
+          {
+            "node": "Retry Execution via n8n API",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Decision \u2014 No Retry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

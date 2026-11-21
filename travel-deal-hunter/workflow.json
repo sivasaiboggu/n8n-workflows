@@ -1,0 +1,596 @@
+{
+ "name": "Travel Deal Hunter — Siva",
+ "nodes": [
+  {
+   "parameters": {
+    "content": "CREDENTIALS NEEDED (pick/create on import — no credential is set in this file):\nn8n shows \"No credential set\" on each node below; click the node and pick/create the credential. No key or secret is stored in this file.\n- Google Sheets account (googleSheetsOAuth2) — Read Travel Watchlist, Save Draft Itinerary, Check Approval Sheet, Log Awaiting Approval, Log Execution, Log Error to Sheet\n- Google Calendar account (googleCalendarOAuth2) — Read Calendar Gaps\n- Kiwi Tequila API (httpHeaderAuth) — Fetch Flight Prices, Fetch Hotel Prices\n- Google Gemini(PaLM) Api (googlePalmApi) — Gemini Chat Model\n- Telegram account (telegramApi) — Send Deal Alert via Telegram, Notify — Ready to Book (Manual), Notify Error via Telegram",
+    "height": 242,
+    "width": 560,
+    "color": 4
+   },
+   "id": "580cd12f-dbf6-4379-9a88-65d0a8043b95",
+   "name": "Sticky Note — Credentials",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    0,
+    -522
+   ]
+  },
+  {
+   "parameters": {
+    "content": "Travel Deal Hunter — Siva\nEvery 6h read trip watchlist from Sheets, check flight + hotel prices, alert on drops via Telegram. Gemini drafts an itinerary from preferences + Google Calendar gaps.\nHUMAN APPROVAL before any booking — this workflow never books anything.",
+    "height": 140,
+    "width": 560,
+    "color": 4
+   },
+   "id": "7741ca4a-81f7-4073-9271-5722ffd3b0ae",
+   "name": "About This Workflow",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    0,
+    -260
+   ]
+  },
+  {
+   "parameters": {
+    "rule": {
+     "interval": [
+      {
+       "field": "hours",
+       "hoursInterval": 6
+      }
+     ]
+    }
+   },
+   "id": "aa3a765b-f0fe-4608-b4c0-bf2f4674951c",
+   "name": "Every 6 hours",
+   "type": "n8n-nodes-base.scheduleTrigger",
+   "typeVersion": 1.2,
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Travel Watchlist",
+    "operation": "read"
+   },
+   "id": "821c30f5-0824-407e-a757-a75e4012f415",
+   "name": "Read Travel Watchlist",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    240,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "resource": "event",
+    "operation": "getAll",
+    "calendarId": "primary",
+    "returnAll": true
+   },
+   "id": "ed87c16e-2f21-441d-a3e8-906e8013af4e",
+   "name": "Read Calendar Gaps",
+   "type": "n8n-nodes-base.googleCalendar",
+   "typeVersion": 1.2,
+   "position": [
+    480,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "method": "GET",
+    "url": "https://api.tequila.kiwi.com/v2/search?fly_from=YOUR_HOME_AIRPORT&fly_to=YOUR_DESTINATION&date_from=YOUR_DATE_FROM&date_to=YOUR_DATE_TO&curr=INR&limit=5",
+    "authentication": "none",
+    "options": {
+     "response": {
+      "response": {
+       "responseFormat": "json"
+      }
+     },
+     "timeout": 10000
+    }
+   },
+   "id": "e51f8048-c89b-4fd9-8655-f164f0e2b845",
+   "name": "Fetch Flight Prices",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    720,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "method": "GET",
+    "url": "https://api.tequila.kiwi.com/v2/search?fly_from=YOUR_HOME_AIRPORT&fly_to=YOUR_DESTINATION&date_from=YOUR_DATE_FROM&date_to=YOUR_DATE_TO&curr=INR&limit=5",
+    "authentication": "none",
+    "options": {
+     "response": {
+      "response": {
+       "responseFormat": "json"
+      }
+     },
+     "timeout": 10000
+    }
+   },
+   "id": "6fc16c9d-7f84-4fda-864a-7909d7c1b9c3",
+   "name": "Fetch Hotel Prices",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    960,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "mode": "append"
+   },
+   "id": "fbcf90a8-257a-4e73-b974-a4433a479c92",
+   "name": "Merge Prices",
+   "type": "n8n-nodes-base.merge",
+   "typeVersion": 3,
+   "position": [
+    1200,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "// Compare fetched price with the target_price / last_seen_price from the watchlist row.\n// Keeps only rows where price dropped below target. Fill target_price in Sheets first.\nreturn $input.all().filter(i => { const p = Number(i.json.price ?? i.json.total ?? Infinity); const t = Number(i.json.target_price ?? Infinity); i.json.price_drop = p < t; return p < t; });"
+   },
+   "id": "f33c1bce-d47b-4e1b-a566-5fd7d20384b8",
+   "name": "Detect Price Drop",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1440,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "promptType": "text",
+    "text": "=Using the trip in the input, the traveller preferences (budget, pace, interests from the watchlist row) and the free gaps from Google Calendar, draft a day-by-day itinerary. Keep it a DRAFT only, note total estimated cost in INR, and end with: 'Draft only — no booking made. Reply APPROVE in the approval sheet to proceed.' Input: {{ JSON.stringify($json).slice(0, 4000) }}",
+    "options": {}
+   },
+   "id": "babbd2d8-5ace-4e99-ac81-c16d2325a6ae",
+   "name": "Itinerary Drafter",
+   "type": "@n8n/n8n-nodes-langchain.agent",
+   "typeVersion": 1.7,
+   "position": [
+    1680,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "model": "gemini-2.0-flash",
+    "options": {
+     "temperature": 0.3
+    }
+   },
+   "id": "6970945a-7bfe-433d-9c88-2561056dddb3",
+   "name": "Gemini Chat Model",
+   "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+   "typeVersion": 1,
+   "position": [
+    1680,
+    280
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Draft Itineraries",
+    "operation": "append",
+    "columns": {
+     "mappingMode": "manual",
+     "value": {
+      "timestamp": "={{ $now }}",
+      "destination": "={{ $json.destination || '' }}",
+      "itinerary": "={{ $json.output || '' }}",
+      "status": "draft — awaiting approval"
+     }
+    }
+   },
+   "id": "f638b81c-3be0-4f88-a305-5d62ac393e0b",
+   "name": "Save Draft Itinerary",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    1920,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "chatId": "YOUR_TELEGRAM_CHAT_ID",
+    "text": "=✈️ Travel deal drop!\n\n{{ $json.output || JSON.stringify($json).slice(0, 800) }}\n\nDraft itinerary saved to the Draft Itineraries tab. Nothing is booked — approve in the Approval tab to proceed.",
+    "additionalFields": {
+     "appendAttribution": false
+    }
+   },
+   "id": "84572778-209d-43d7-9cba-8dffc17c2b89",
+   "name": "Send Deal Alert via Telegram",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    2160,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Approval",
+    "operation": "read"
+   },
+   "id": "5fc4545e-caff-4813-8cf3-2daadb2a42cb",
+   "name": "Check Approval Sheet",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    2400,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose"
+     },
+     "conditions": [
+      {
+       "id": "b9923015-83dc-4c47-b2d2-b0334b9f62aa",
+       "leftValue": "={{ $json.approval || '' }}",
+       "rightValue": "APPROVE",
+       "operator": {
+        "type": "string",
+        "operation": "equals"
+       }
+      }
+     ],
+     "combinator": "and"
+    }
+   },
+   "id": "4c3f53f2-d229-43e6-b6bb-cce3737f371a",
+   "name": "Approved to Book?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    2640,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "chatId": "YOUR_TELEGRAM_CHAT_ID",
+    "text": "=✅ Approved. You may now book this trip yourself — this workflow never books automatically. Destination and draft are in the Draft Itineraries tab.",
+    "additionalFields": {
+     "appendAttribution": false
+    }
+   },
+   "id": "b5c9146d-33da-47e2-826a-d2e39ec3d8b1",
+   "name": "Notify — Ready to Book (Manual)",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    2880,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Execution Log",
+    "operation": "append",
+    "columns": {
+     "mappingMode": "manual",
+     "value": {
+      "timestamp": "={{ $now }}",
+      "workflow": "Travel Deal Hunter — Siva",
+      "status": "awaiting approval",
+      "summary": "Deal alert sent; booking NOT made."
+     }
+    }
+   },
+   "id": "602bf9e5-48ee-4cf1-ab47-be800e78d43e",
+   "name": "Log Awaiting Approval",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    2880,
+    200
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Execution Log",
+    "operation": "append",
+    "columns": {
+     "mappingMode": "manual",
+     "value": {
+      "timestamp": "={{ $now }}",
+      "workflow": "Travel Deal Hunter — Siva",
+      "status": "completed",
+      "summary": "={{ JSON.stringify($json).slice(0, 500) }}"
+     }
+    }
+   },
+   "id": "72a54fb7-8e66-4c5e-b9a1-06c77f87febb",
+   "name": "Log Execution",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    3120,
+    0
+   ]
+  },
+  {
+   "parameters": {},
+   "id": "09d48d6f-631e-4c41-bd77-17235f6945fd",
+   "name": "Error Trigger",
+   "type": "n8n-nodes-base.errorTrigger",
+   "typeVersion": 1,
+   "position": [
+    0,
+    400
+   ]
+  },
+  {
+   "parameters": {
+    "documentId": "YOUR_GOOGLE_SHEET_ID",
+    "sheetName": "Error Log",
+    "operation": "append",
+    "columns": {
+     "mappingMode": "manual",
+     "value": {
+      "timestamp": "={{ $now }}",
+      "workflow": "={{ $json.workflow?.name || 'this workflow' }}",
+      "error": "={{ $json.error?.message || JSON.stringify($json) }}",
+      "node": "={{ $json.node || '' }}"
+     }
+    }
+   },
+   "id": "ec053d42-27eb-45e8-93c5-989d276f77f0",
+   "name": "Log Error to Sheet",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4,
+   "position": [
+    240,
+    400
+   ]
+  },
+  {
+   "parameters": {
+    "chatId": "YOUR_TELEGRAM_CHAT_ID",
+    "text": "=⚠️ Workflow error: {{ $json.error?.message || 'see Error Log sheet' }}. Check the Error Log tab in YOUR_GOOGLE_SHEET_ID.",
+    "additionalFields": {
+     "appendAttribution": false
+    }
+   },
+   "id": "1b66111b-7df0-4b88-bdb5-b5ec81206f2b",
+   "name": "Notify Error via Telegram",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    480,
+    400
+   ]
+  }
+ ],
+ "connections": {
+  "Every 6 hours": {
+   "main": [
+    [
+     {
+      "node": "Read Travel Watchlist",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Read Travel Watchlist": {
+   "main": [
+    [
+     {
+      "node": "Read Calendar Gaps",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Read Calendar Gaps": {
+   "main": [
+    [
+     {
+      "node": "Fetch Flight Prices",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Fetch Flight Prices": {
+   "main": [
+    [
+     {
+      "node": "Fetch Hotel Prices",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Fetch Hotel Prices": {
+   "main": [
+    [
+     {
+      "node": "Merge Prices",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Merge Prices": {
+   "main": [
+    [
+     {
+      "node": "Detect Price Drop",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Detect Price Drop": {
+   "main": [
+    [
+     {
+      "node": "Itinerary Drafter",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Gemini Chat Model": {
+   "ai_languageModel": [
+    [
+     {
+      "node": "Itinerary Drafter",
+      "type": "ai_languageModel",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Itinerary Drafter": {
+   "main": [
+    [
+     {
+      "node": "Save Draft Itinerary",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Save Draft Itinerary": {
+   "main": [
+    [
+     {
+      "node": "Send Deal Alert via Telegram",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Send Deal Alert via Telegram": {
+   "main": [
+    [
+     {
+      "node": "Check Approval Sheet",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Check Approval Sheet": {
+   "main": [
+    [
+     {
+      "node": "Approved to Book?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Approved to Book?": {
+   "main": [
+    [
+     {
+      "node": "Notify — Ready to Book (Manual)",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Log Awaiting Approval",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Notify — Ready to Book (Manual)": {
+   "main": [
+    [
+     {
+      "node": "Log Execution",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Log Awaiting Approval": {
+   "main": [
+    [
+     {
+      "node": "Log Execution",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Error Trigger": {
+   "main": [
+    [
+     {
+      "node": "Log Error to Sheet",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Log Error to Sheet": {
+   "main": [
+    [
+     {
+      "node": "Notify Error via Telegram",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "active": false,
+ "settings": {
+  "executionOrder": "v1"
+ },
+ "pinData": {}
+}

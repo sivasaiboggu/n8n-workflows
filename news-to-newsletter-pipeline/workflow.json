@@ -1,0 +1,573 @@
+{
+  "name": "News-to-Newsletter Pipeline \u2014 Siva",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "97f6a2ae-cde1-5331-af0f-2097d3f7cd09",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * *"
+            }
+          ]
+        }
+      },
+      "id": "f181dac1-b153-5381-bd7f-4fff974889e2",
+      "name": "Schedule \u2014 Daily 07:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "feedUrl": "https://news.ycombinator.com/rss"
+      },
+      "id": "00daa4a5-9262-5850-95aa-91ea1894d806",
+      "name": "Read RSS Feeds",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        240,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=10",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "id": "f023d40c-cc11-57f8-abce-b8d2ee673afb",
+      "name": "Fetch Hacker News",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.reddit.com/r/technology/top/.json?limit=10&t=day",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "id": "fb44339c-4081-50ff-a8bb-a6eaf0b4b35b",
+      "name": "Fetch Reddit Top",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append"
+      },
+      "id": "adee5377-b6e6-54a6-9657-b065f0e311cf",
+      "name": "Merge Sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        480,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Dedupe by URL, keep title/link/source/published. Drop items with no URL.\nconst seen = new Set(); const out = [];\nfor (const it of $input.all()) { const j = it.json; const items = j.items || j.children || [j];\n for (const x of items) { const url = x.link || x.url || x.data?.url; if (!url || seen.has(url)) continue; seen.add(url);\n  out.push({json:{title: x.title || x.data?.title || '', url, source: x.source || 'rss/hn/reddit', published: x.pubDate || x.created_at_i || ''}}); } }\nreturn out.slice(0, 40);"
+      },
+      "id": "abac1d68-734e-500d-84ba-efaa56a8b05c",
+      "name": "Dedupe & Normalise",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "lookup",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Newsletter Log",
+          "mode": "list",
+          "cachedResultName": "Newsletter Log"
+        },
+        "lookupColumn": "key",
+        "lookupValue": "latest"
+      },
+      "id": "f05f68e2-c05a-519c-b4fb-f87c430e51bf",
+      "name": "Read Past Newsletter Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "model": "gemini-2.0-flash",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "0dd4e2f3-7ceb-5ccc-a9ad-7a94b29c5224",
+      "name": "Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        960,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are Siva's newsletter editor. Rank these stories by relevance to Siva's readers (AI agents, software engineering, jobs/tech in India) and summarise the top 5. Stories: {{ JSON.stringify($input.all().map(i => i.json)) }}. Avoid repeating topics already covered (past log is in the input). Return JSON: {\"stories\": [{\"title\": \"\", \"url\": \"\", \"summary\": \"\", \"why_it_matters\": \"\"}]}. Never invent a story or a URL \u2014 use only the URLs given.",
+        "options": {
+          "systemMessage": "You are helping Siva (Sivasai Boggu). Never invent facts, emails, prices or sources. If you do not know, say so."
+        }
+      },
+      "id": "9cb4e397-0aad-51c8-bb0b-809bd8494805",
+      "name": "Rank & Summarise Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        960,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Draft in Siva's tone: direct, fast, evidence-led, no hype. Plain text + links.\nconst j = $input.first().json.output || $input.first().json;\nconst stories = j.stories || [];\nlet body = 'Siva\\'s Tech Brief \u2014 ' + new Date().toISOString().slice(0,10) + '\\n\\n';\nstories.forEach((s,i)=>{ body += `${i+1}. ${s.title}\\n${s.summary}\\nWhy it matters: ${s.why_it_matters}\\n${s.url}\\n\\n`; });\nbody += '\u2014 Draft only. Never auto-sent; Siva sends from Beehiiv/Substack with one click.';\nreturn [{json:{subject: 'Tech Brief \u2014 ' + new Date().toISOString().slice(0,10), body, stories}}];"
+      },
+      "id": "ed25fcdd-0f09-50f3-9f83-1e5eb54ecb2d",
+      "name": "Draft Newsletter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.beehiiv.com/v2/publications/YOUR_PUBLICATION_ID/posts",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000
+        },
+        "sendHeaders": true,
+        "sendBody": true,
+        "contentType": "json",
+        "body": "= {\"title\": \"{{ $json.subject }}\", \"content\": \"{{ $json.body }}\", \"status\": \"draft\"}"
+      },
+      "id": "ad73a574-343a-5c86-aca4-4ddf3028d179",
+      "name": "Save Draft to Beehiiv",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=\ud83d\udcf0 Newsletter draft ready in Beehiiv (DRAFT only \u2014 never auto-sent). Subject: {{ $json.subject }}. Review and send with one click from Beehiiv/Substack."
+      },
+      "id": "15a36eda-14aa-5f0f-9f62-77ba3cdc7614",
+      "name": "Notify Siva \u2014 Draft Ready",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1680,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Execution Log",
+          "mode": "list",
+          "cachedResultName": "Execution Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now }}",
+            "workflow": "={{ $workflow.name }}",
+            "status": "success",
+            "summary": "={{ $json.subject }}"
+          },
+          "matchingColumns": [
+            "timestamp",
+            "workflow",
+            "status",
+            "summary"
+          ],
+          "schema": []
+        }
+      },
+      "id": "af692593-f021-5db0-9313-7a10487d08f0",
+      "name": "Log Execution",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        240
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "da5052e6-1317-516a-a8f6-9eb1d5789b17",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        840
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Error Log",
+          "mode": "list",
+          "cachedResultName": "Error Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now }}",
+            "workflow": "={{ $json.workflow?.name }}",
+            "error": "={{ $json.error?.message }}",
+            "node": "={{ $json.node?.name }}"
+          },
+          "matchingColumns": [
+            "timestamp",
+            "workflow",
+            "error",
+            "node"
+          ],
+          "schema": []
+        }
+      },
+      "id": "4604d8c4-af8b-5482-94cf-4b4e32c055a9",
+      "name": "Log Error to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        840
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=\u26a0\ufe0f n8n error in {{ $json.workflow?.name }}: {{ $json.error?.message }}. Logged to sheet."
+      },
+      "id": "d90a4320-587c-5698-b009-3a24786fb403",
+      "name": "Notify Siva \u2014 Error",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        840
+      ]
+    },
+    {
+      "parameters": {
+        "content": "News-to-Newsletter Pipeline \u2014 Siva\nDaily 07:00 \u2192 RSS + Hacker News + Reddit \u2192 dedupe \u2192 Gemini ranks/summarises top 5 in Siva's tone \u2192 DRAFT saved to Beehiiv/Substack. NEVER auto-sends: Siva reviews and sends with one click. Telegram notifies when the draft is ready.",
+        "height": 180,
+        "width": 420
+      },
+      "id": "262e3b20-dad8-57ea-aba1-7cd56da8c337",
+      "name": "Sticky Note \u2014 Flow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "content": "MEMORY: 'Read Past Newsletter Log' checks the Newsletter Log sheet so topics are not repeated. Store per run: date, stories used, open/click performance (filled in manually from Beehiiv) \u2014 future ranking should weight what readers actually opened.",
+        "height": 180,
+        "width": 420
+      },
+      "id": "f8cac44f-971c-59b3-a6c0-8251bc2c778c",
+      "name": "Sticky Note \u2014 Memory Layer",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        480,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "content": "CREDENTIALS NEEDED (pick/create on import \u2014 no credential is set in this file):\n\u2022 Gemini Chat Model \u2192 Google Gemini API\n\u2022 Read Past Newsletter Log / Log Execution / Log Error to Sheet \u2192 Google Sheets account\n\u2022 Notify Siva \u2014 Draft Ready / Notify Siva \u2014 Error \u2192 Telegram account\n\u2022 Save Draft to Beehiiv \u2192 Beehiiv API Key (HTTP Header Auth)\n\u2022 RSS / Hacker News / Reddit \u2192 no credential needed\nSee SETUP.md \u00a72 for how to create each one.",
+        "height": 260,
+        "width": 420
+      },
+      "id": "37ac6a97-8f8f-5e06-8f7d-d292fa4ba1d7",
+      "name": "Sticky Note \u2014 Credentials",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        960,
+        -320
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read RSS Feeds",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Hacker News",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Reddit Top",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule \u2014 Daily 07:00": {
+      "main": [
+        [
+          {
+            "node": "Read RSS Feeds",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Hacker News",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Reddit Top",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read RSS Feeds": {
+      "main": [
+        [
+          {
+            "node": "Merge Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Hacker News": {
+      "main": [
+        [
+          {
+            "node": "Merge Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Reddit Top": {
+      "main": [
+        [
+          {
+            "node": "Merge Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Sources": {
+      "main": [
+        [
+          {
+            "node": "Dedupe & Normalise",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedupe & Normalise": {
+      "main": [
+        [
+          {
+            "node": "Read Past Newsletter Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Past Newsletter Log": {
+      "main": [
+        [
+          {
+            "node": "Rank & Summarise Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Rank & Summarise Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rank & Summarise Agent": {
+      "main": [
+        [
+          {
+            "node": "Draft Newsletter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft Newsletter": {
+      "main": [
+        [
+          {
+            "node": "Save Draft to Beehiiv",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Draft to Beehiiv": {
+      "main": [
+        [
+          {
+            "node": "Notify Siva \u2014 Draft Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Siva \u2014 Draft Ready": {
+      "main": [
+        [
+          {
+            "node": "Log Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Log Error to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Error to Sheet": {
+      "main": [
+        [
+          {
+            "node": "Notify Siva \u2014 Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

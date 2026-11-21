@@ -1,0 +1,625 @@
+{
+  "name": "Daily Automation Self-Report — Siva",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "Daily Automation Self-Report — Siva\nEvery evening 21:00 IST: read today's rows from the Daily Log sheet (+ optional n8n API execution list) → Gemini summarises what each automation did, what succeeded/failed, what needs attention → if the Control sheet flag send_report is ON, email the report to Siva only → log the report to Weekly Trends + Daily Log. Empty log = report says 'no runs recorded today', never invented numbers.\nCREDENTIALS TO CONNECT (none stored in this file): Gmail (sivasaiboggu@gmail.com), Google Sheets, Google Gemini API, Telegram bot, n8n API key (HTTP Header Auth, optional placeholder — report still works from the sheet alone).",
+        "height": 200,
+        "width": 560
+      },
+      "id": "5fef5341-acbf-4e32-a74a-3f3ec5787805",
+      "name": "Sticky Note — Flow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "MEMORY LAYER (no live DB): the Weekly Trends sheet tab is the memory — one row per daily report (date, summary, succeeded/failed counts, needs_attention). Past reports feed a weekly trend: compare this week's rows to spot repeat failures per workflow. A future version can feed past Weekly Trends rows into the Gemini prompt; do NOT invent a live Postgres/vector DB connection.",
+        "height": 200,
+        "width": 560
+      },
+      "id": "0bfb7fa7-cc0b-4896-8be2-bc96d0620cb2",
+      "name": "Sticky Note — Memory Layer",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "5480229d-a76c-4263-980b-77c296f5cfb8",
+      "name": "Manual Trigger (Test)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 21 * * *"
+            }
+          ]
+        }
+      },
+      "id": "b19d6e20-9c75-4a07-8c3c-c17c1fabcbcb",
+      "name": "Every Evening 21:00 IST",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": "YOUR_AUTOMATION_LOG_SHEET_ID",
+        "sheetName": "Daily Log"
+      },
+      "id": "bc5929fa-d290-4e5c-b6b0-5765cf798b55",
+      "name": "Read Daily Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalise today's rows from the Daily Log sheet.\n// Sheet columns: workflow | time | status | items processed | errors\n// Date is computed in IST (UTC+5:30) so \"today\" matches Siva's day.\nconst nowIST = new Date(Date.now() + 5.5 * 3600 * 1000);\nconst todayStr = nowIST.toISOString().slice(0, 10);\n\nconst rows = $input.all().map(i => i.json);\nconst todayRows = rows.filter(r => {\n  const t = String(r.time || r.timestamp || '');\n  return t.startsWith(todayStr);\n});\n\nconst isOk = s => /success|ok|sent|done|completed/i.test(String(s || ''));\nconst isFail = s => /fail|error/i.test(String(s || ''));\n\nconst byWorkflow = {};\nfor (const r of todayRows) {\n  const w = String(r.workflow || 'unknown');\n  byWorkflow[w] = byWorkflow[w] || { name: w, runs: 0, succeeded: 0, failed: 0 };\n  byWorkflow[w].runs += 1;\n  if (isFail(r.status)) byWorkflow[w].failed += 1;\n  else if (isOk(r.status)) byWorkflow[w].succeeded += 1;\n}\n\nconst itemsProcessed = todayRows.reduce(\n  (n, r) => n + (Number(r['items processed']) || 0), 0);\nconst errorsTotal = todayRows.reduce(\n  (n, r) => n + (Number(r.errors) || 0), 0);\n\nreturn [{\n  json: {\n    date: todayStr,\n    rows_today: todayRows.length,\n    succeeded: todayRows.filter(r => isOk(r.status)).length,\n    failed: todayRows.filter(r => isFail(r.status)).length,\n    items_processed: itemsProcessed,\n    errors_total: errorsTotal,\n    has_runs: todayRows.length > 0,\n    workflows: Object.values(byWorkflow),\n  }\n}];"
+      },
+      "id": "9f792fae-e5a5-422b-9c04-fca0a2fb32c5",
+      "name": "Normalise Today's Log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://YOUR_N8N_HOST/api/v1/executions?limit=100",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "id": "78f27c55-817d-42d5-9a9a-7af97a1cd3c5",
+      "name": "Fetch Today's Executions via n8n API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge the Daily Log summary with the (optional) n8n API execution list.\n// The n8n API node has \"continue on error\": if no API key is configured it\n// returns an error payload, and this node must NOT fail the report.\nconst log = $('Normalise Today\\'s Log').first().json;\nconst apiRaw = $input.first().json || {};\nconst execs = Array.isArray(apiRaw.data) ? apiRaw.data\n  : (Array.isArray(apiRaw) ? apiRaw : []);\nconst apiAvailable = Array.isArray(apiRaw.data) || Array.isArray(apiRaw);\nconst apiFailed = execs.filter(e =>\n  String(e.status || e.finished === false ? 'error' : e.status || '')\n    .toLowerCase().includes('error')).length;\n\nreturn [{\n  json: {\n    ...log,\n    api_available: apiAvailable,\n    api_executions_today: apiAvailable ? execs.length : 0,\n    api_failed: apiFailed,\n    api_note: apiAvailable\n      ? 'n8n API execution list included'\n      : 'n8n API not configured — report is based on the Daily Log sheet only',\n  }\n}];"
+      },
+      "id": "9f2aa06c-8a3d-40e3-a716-40e8ad96790f",
+      "name": "Combine Log + API Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "model": "gemini-2.0-flash",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "a3a918bd-0a03-44ca-92a2-1a514386c7ff",
+      "name": "Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are Siva's daily automation reporter. Summarise what his n8n automations did today ({{ $json.date }} IST) from this data only: {{ JSON.stringify($json) }}. Rules: 1) Only use the data given — never invent runs, numbers, workflow names or failures. 2) If has_runs is false and api_available is false, the report must say 'No runs recorded today' and say nothing else about activity. 3) Group by workflow: runs, succeeded, failed, items processed, errors. 4) End with a 'Needs your attention' list (failures/errors only, or 'Nothing needs your attention'). 5) Keep it short, plain text, no markdown tables. 6) Also include one line starting 'TREND:' with a one-sentence trend note for the Weekly Trends sheet.",
+        "options": {
+          "systemMessage": "You summarise n8n automation runs for Siva. You never invent data. If no runs are recorded, say so plainly."
+        }
+      },
+      "id": "b1146fc2-a08d-4a33-a48e-bfa60d963f96",
+      "name": "Summarise Day with Gemini",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        1200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "report_date",
+              "value": "={{ $now.toFormat('yyyy-MM-dd') }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "subject",
+              "value": "={{ 'Your automations today — ' + $now.toFormat('yyyy-MM-dd') }}",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "body",
+              "value": "={{ 'Hi Siva,\\n\\nHere is what your automations did today (' + $now.toFormat('yyyy-MM-dd') + '):\\n\\n' + $json.output + '\\n\\n— Your n8n self-report' }}",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "workflows_succeeded",
+              "value": "={{ $('Combine Log + API Data').first().json.succeeded || 0 }}",
+              "type": "number"
+            },
+            {
+              "id": "a5",
+              "name": "workflows_failed",
+              "value": "={{ $('Combine Log + API Data').first().json.failed || 0 }}",
+              "type": "number"
+            },
+            {
+              "id": "a6",
+              "name": "needs_attention",
+              "value": "={{ ($('Combine Log + API Data').first().json.failed || 0) > 0 ? 'yes — see report' : 'no' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d2668af7-af92-40e9-94cc-d811d0970e02",
+      "name": "Build Report Email",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_AUTOMATION_LOG_SHEET_ID",
+        "sheetName": "Weekly Trends",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "date": "={{ $json.report_date }}",
+            "report_summary": "={{ $json.body }}",
+            "workflows_succeeded": "={{ $json.workflows_succeeded }}",
+            "workflows_failed": "={{ $json.workflows_failed }}",
+            "needs_attention": "={{ $json.needs_attention }}",
+            "status": "generated — send pending"
+          }
+        }
+      },
+      "id": "0b8e8b58-9321-4882-8511-adc350fa23f6",
+      "name": "Log Report to Weekly Trends",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        1680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "lookup",
+        "documentId": "YOUR_AUTOMATION_LOG_SHEET_ID",
+        "sheetName": "Control",
+        "lookupColumn": "key",
+        "lookupValue": "send_report"
+      },
+      "id": "b587724b-8b9a-4c7e-90d5-84a1cde296ef",
+      "name": "Read Send Flag",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        1920,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Default the send flag to ON when the Control sheet has no send_report row.\n// Siva is the only recipient, so ON is the safe default; set the sheet value\n// to OFF to pause the email without deactivating the workflow.\nconst items = $input.all();\nif (!items.length || items[0].json.value === undefined || items[0].json.value === null) {\n  return [{ json: { key: 'send_report', value: 'ON', source: 'default (no Control row found)' } }];\n}\nreturn items;"
+      },
+      "id": "db2ebe2e-86be-4338-a093-badb6707a965",
+      "name": "Default Send Flag to ON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.value }}",
+              "rightValue": "ON",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true
+      },
+      "id": "b6e0b320-66fe-48ba-be96-acc4a13d4be9",
+      "name": "Send Report?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "sivasaiboggu@gmail.com",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}"
+      },
+      "id": "f4c08f05-7d13-42f0-97b8-8e7ef1f5dae5",
+      "name": "Send Report Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2640,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b1",
+              "name": "status",
+              "value": "skipped — send_report flag OFF",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d28f895c-7afa-4543-9601-312eee4ab036",
+      "name": "Mark Skipped — Flag OFF",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2640,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_AUTOMATION_LOG_SHEET_ID",
+        "sheetName": "Daily Log",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "workflow": "Daily Automation Self-Report",
+            "time": "={{ $now.toISO() }}",
+            "status": "={{ $json.messageId ? 'report sent' : ($json.status || 'done') }}",
+            "items processed": "={{ $('Combine Log + API Data').first().json.rows_today || 0 }}",
+            "errors": "={{ $('Combine Log + API Data').first().json.failed || 0 }}"
+          }
+        }
+      },
+      "id": "71ce1497-c840-4edc-8d0d-78d1b5fbffa1",
+      "name": "Log Execution",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        2880,
+        300
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "ccdc3efd-5b87-4bb7-92b0-af00dfb4449d",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_AUTOMATION_LOG_SHEET_ID",
+        "sheetName": "Error Log",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow": "={{ $json.workflow?.name || 'Daily Automation Self-Report' }}",
+            "node": "={{ $json.execution?.lastNodeExecuted || '' }}",
+            "error": "={{ $json.execution?.error || '' }}",
+            "execution_id": "={{ $json.execution?.id || '' }}"
+          }
+        }
+      },
+      "id": "10fdb484-cad1-47d7-8c8c-c2ecbf73dffb",
+      "name": "Log Error to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        240,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Daily self-report workflow failed.\nWorkflow: {{ $json.workflow }}\nNode: {{ $json.node }}\nError: {{ $json.error }}\nCheck the Error Log tab in the automation log sheet.",
+        "additionalFields": {}
+      },
+      "id": "ff054279-8883-468c-a01d-c593c4b8deac",
+      "name": "Send Telegram Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        600
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger (Test)": {
+      "main": [
+        [
+          {
+            "node": "Read Daily Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every Evening 21:00 IST": {
+      "main": [
+        [
+          {
+            "node": "Read Daily Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Daily Log": {
+      "main": [
+        [
+          {
+            "node": "Normalise Today's Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalise Today's Log": {
+      "main": [
+        [
+          {
+            "node": "Fetch Today's Executions via n8n API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Today's Executions via n8n API": {
+      "main": [
+        [
+          {
+            "node": "Combine Log + API Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Log + API Data": {
+      "main": [
+        [
+          {
+            "node": "Summarise Day with Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarise Day with Gemini": {
+      "main": [
+        [
+          {
+            "node": "Build Report Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Report Email": {
+      "main": [
+        [
+          {
+            "node": "Log Report to Weekly Trends",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Report to Weekly Trends": {
+      "main": [
+        [
+          {
+            "node": "Read Send Flag",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Send Flag": {
+      "main": [
+        [
+          {
+            "node": "Default Send Flag to ON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Default Send Flag to ON": {
+      "main": [
+        [
+          {
+            "node": "Send Report?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Report?": {
+      "main": [
+        [
+          {
+            "node": "Send Report Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Skipped — Flag OFF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Report Email": {
+      "main": [
+        [
+          {
+            "node": "Log Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Skipped — Flag OFF": {
+      "main": [
+        [
+          {
+            "node": "Log Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Summarise Day with Gemini",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Log Error to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Error to Sheet": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
