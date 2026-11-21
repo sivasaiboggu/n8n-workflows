@@ -1,4 +1,4 @@
-> **Import note (fixed 21 Nov 2026):** no credential is set in this workflow's JSON — the placeholder credential references that made n8n refuse to save on import were removed. On import n8n shows "No credential set"; connect your own credentials there. See the "Sticky Note — Credentials" node in the workflow for the exact list.
+> **Import note (fixed 21 Nov 2026):** no credential is set in this workflow's JSON — the placeholder credential references that made n8n refuse to save on import were removed. On import n8n shows "No credential set"; connect your own credentials there. See the "Sticky Note — Credentials" node in the workflow for the exact list. **`job-search-autopilot-clean.json` is the exact file imported into n8n Cloud on 21 Nov 2026** — same 33 nodes and connections; `job-search-autopilot.json` is identical plus the sticky-note node. Import either; the clean copy is the proven one.
 
 # Job Search Autopilot — Setup Guide
 
@@ -7,12 +7,12 @@ researches each new company with Gemini, writes a personalised cold mail, sends 
 to a verified email with a 5-minute gap, logs everything to Google Sheets, and tracks replies
 and Day 4–5 follow-ups.
 
-**File:** `job-search-autopilot.json` — 33 nodes.
+**Files:** `job-search-autopilot-clean.json` (the imported copy, 33 nodes) and `job-search-autopilot.json` (same workflow plus a "Sticky Note — Credentials" node, 34 nodes).
 
 ## 1. Import the workflow
 
 1. Open your n8n instance (Cloud or self-hosted).
-2. Go to **Workflows → ⋯ → Import from File** and choose `job-search-autopilot.json`.
+2. Go to **Workflows → ⋯ → Import from File** and choose `job-search-autopilot-clean.json`.
 3. The workflow opens **inactive** — that is intentional. Do not activate it until step 5 is done.
 4. n8n will show the credentials below as "not connected". Connect each one (step 2) — the
    credential names in the file are just labels; pick your real credentials when prompted.
